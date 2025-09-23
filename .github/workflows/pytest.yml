@@ -1,0 +1,46 @@
+name: Python Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python_version_numbers: ['3.12', '3.13']
+
+    steps:
+    - name: Checkout repository code
+      uses: actions/checkout@v3
+
+    - name: Set up Python ${{ matrix.python_version_numbers }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python_version_numbers }}
+
+    - name: Install Poetry package manager
+      # Installing Poetry, the dependency manager
+      run: |
+        curl -sSL https://install.python-poetry.org | python3 -
+
+    - name: Install project dependencies with Poetry
+      # Installing all dependencies, including development packages
+      run: poetry install --with dev
+
+    - name: Run pytest with coverage
+      # Running tests with coverage report
+      run: |
+        poetry run pytest --cov --cov-report=xml
+
+    - name: Upload coverage to Codecov
+      # Uploading coverage data to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        slug: evandempsey/podcast-llm
+        files: ./coverage.xml
+        fail_ci_if_error: true
