@@ -5,7 +5,7 @@ This module handles the conversion of text scripts into natural-sounding speech 
 multiple TTS providers (Google Cloud TTS and ElevenLabs). It includes functionality for:
 
 - Rate limiting API requests to stay within provider quotas
-- Exponential backoff retry logic for API resilience 
+- Exponential backoff retry logic for API resilience
 - Processing individual conversation lines with appropriate voices
 - Merging multiple audio segments into a complete podcast
 - Managing temporary audio file storage and cleanup
@@ -32,6 +32,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import List
 
+import openai
 from elevenlabs import client as elevenlabs_client
 from google.cloud import texttospeech
 from google.cloud import texttospeech_v1beta1
@@ -125,36 +126,36 @@ def process_line_google(config: PodcastConfig, text: str, speaker: str):
     """
     client = texttospeech.TextToSpeechClient(client_options={'api_key': config.google_api_key})
     tts_settings = config.tts_settings['google']
-    
+
     interviewer_voice = texttospeech.VoiceSelectionParams(
         language_code=tts_settings['language_code'],
         name=tts_settings['voice_mapping']['Interviewer'],
         ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
     )
-    
+
     interviewee_voice = texttospeech.VoiceSelectionParams(
         language_code=tts_settings['language_code'],
         name=tts_settings['voice_mapping']['Interviewee'],
         ssml_gender=texttospeech.SsmlVoiceGender.MALE
     )
-    
+
     synthesis_input = texttospeech.SynthesisInput(text=text)
     voice = interviewee_voice
     if speaker == 'Interviewer':
         voice = interviewer_voice
-    
+
     # Select the type of audio file you want returned
     audio_config = texttospeech.AudioConfig(
         audio_encoding=texttospeech.AudioEncoding.MP3,
         effects_profile_id=tts_settings['effects_profile_id']
     )
-    
+
     # Perform the text-to-speech request on the text input with the selected
     # voice parameters and audio file type
     response = client.synthesize_speech(
         input=synthesis_input, voice=voice, audio_config=audio_config
     )
-    
+
     return response.audio_content
 
 
@@ -189,21 +190,50 @@ def process_line_elevenlabs(config: PodcastConfig, text: str, speaker: str):
     audio_bytes = BytesIO()
     for chunk in audio:
         audio_bytes.write(chunk)
-    
+
+    return audio_bytes.getvalue()
+
+
+@retry_with_exponential_backoff(max_retries=10, base_delay=2.0)
+@rate_limit_per_minute(max_requests_per_minute=20)
+def process_line_openai(config: PodcastConfig, text: str, speaker: str):
+    """
+    Process a line of text into speech using OpenAI TTS service.
+    Args:
+        config (PodcastConfig): Configuration object containing API keys and settings
+        text (str): The text content to convert to speech
+        speaker (str): Speaker identifier to determine voice selection
+    Returns:
+        bytes: Raw audio data in bytes format containing the synthesized speech
+    """
+    client = openai.OpenAI(api_key=config.openai_api_key)
+    tts_settings = config.tts_settings["openai"]
+
+    response = client.audio.speech.create(
+        model=tts_settings["model"],
+        voice=tts_settings["voice_mapping"][speaker],
+        input=text,
+    )
+
+    # Convert audio iterator to bytes that can be written to disk
+    audio_bytes = BytesIO()
+    for chunk in response.iter_bytes():
+        audio_bytes.write(chunk)
+
     return audio_bytes.getvalue()
 
 
 def combine_consecutive_speaker_chunks(chunks: List[dict]) -> List[dict]:
     """
     Combine consecutive chunks from the same speaker into single chunks.
-    
+
     Args:
         chunks (List[dict]): List of dictionaries containing conversation chunks with structure:
             {
                 'speaker': str,  # Speaker identifier
                 'text': str      # Text content
             }
-    
+
     Returns:
         List[dict]: List of combined chunks where consecutive entries from the same speaker
                    are merged into single chunks
@@ -292,9 +322,9 @@ def process_lines_google_multispeaker(config: PodcastConfig, chunks: List):
 
 def convert_to_speech(
         config: PodcastConfig,
-        conversation: str, 
-        output_file: str, 
-        temp_audio_dir: str, 
+        conversation: str,
+        output_file: str,
+        temp_audio_dir: str,
         audio_format: str) -> None:
     """
     Convert a conversation script to speech audio using Google Text-to-Speech API.
@@ -320,7 +350,8 @@ def convert_to_speech(
     tts_audio_formats = {
         'elevenlabs': 'mp3',
         'google': 'mp3',
-        'google_multispeaker': 'mp3'
+        'google_multispeaker': 'mp3',
+        'openai':'mp3'
     }
 
     try:
@@ -329,20 +360,20 @@ def convert_to_speech(
         counter = 0
 
         if config.tts_provider == 'google_multispeaker':
-            # We will not use a line by line strategy. 
+            # We will not use a line by line strategy.
             # Instead we will process in chunks of 6.
             # Process conversation in chunks of 6 lines
             for chunk_start in range(0, len(conversation), 4):
                 chunk = conversation[chunk_start:chunk_start + 4]
                 logger.info(f"Processing chunk {counter} with {len(chunk)} lines...")
-                
+
                 audio = process_lines_google_multispeaker(config, chunk)
-                
+
                 file_name = os.path.join(temp_audio_dir, f"{counter:03d}.{tts_audio_formats[config.tts_provider]}")
                 with open(file_name, "wb") as out:
                     out.write(audio)
                 audio_files.append(file_name)
-                
+
                 counter += 1
         else:
             for line in conversation:
@@ -352,6 +383,10 @@ def convert_to_speech(
                     audio = process_line_google(config, line['text'], line['speaker'])
                 elif config.tts_provider == 'elevenlabs':
                     audio = process_line_elevenlabs(config, line['text'], line['speaker'])
+                elif config.tts_provider == "openai":
+                    audio = process_line_openai(
+                        config, line["text"], line["speaker"]
+                    )
 
                 logger.info(f"Saving audio chunk {counter}...")
                 file_name = os.path.join(temp_audio_dir, f"{counter:03d}.{tts_audio_formats[config.tts_provider]}")
