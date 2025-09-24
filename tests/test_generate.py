@@ -1,7 +1,7 @@
 import os
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, AsyncMock, patch
 from podcast_llm.generate import generate, parse_arguments, DEFAULT_CONFIG_PATH
 from podcast_llm.config import PodcastConfig
 from podcast_llm.models import (
@@ -11,23 +11,28 @@ from podcast_llm.models import (
 )
 
 
-def mock_checkpointer() -> Mock:
-    """Create a mock checkpointer that passes through function calls."""
-    mock = Mock()
-    def checkpoint_passthrough(fn, args, stage_name='result'):
-        return fn(*args)
-    mock.checkpoint = Mock(side_effect=checkpoint_passthrough)
+# Simplified mock_checkpointer for testing
+def mock_checkpointer_instance_for_test():
+    mock = AsyncMock()
+    mock.checkpoint_async.side_effect = [
+        ['background'], # For research_background_info
+        PodcastOutline(sections=[PodcastSection(title='Section1', subsections=[PodcastSubsection(title='Subsection 1')])]), # For outline_episode
+        ['topics'], # For research_discussion_topics
+        ['draft'], # For write_draft_script
+        [{'speaker': 'Interviewer', 'text': 'Hello'}] # For write_final_script
+    ]
     return mock
 
 
-@patch('podcast_llm.generate.research_background_info')
-@patch('podcast_llm.generate.outline_episode')
-@patch('podcast_llm.generate.research_discussion_topics')
-@patch('podcast_llm.generate.write_draft_script')
-@patch('podcast_llm.generate.write_final_script')
-@patch('podcast_llm.generate.generate_audio')
+@pytest.mark.asyncio
+@patch('podcast_llm.generate.research_background_info', new_callable=AsyncMock)
+@patch('podcast_llm.generate.outline_episode', new_callable=Mock) # outline_episode is synchronous
+@patch('podcast_llm.generate.research_discussion_topics', new_callable=AsyncMock)
+@patch('podcast_llm.generate.write_draft_script', new_callable=AsyncMock)
+@patch('podcast_llm.generate.write_final_script', new_callable=AsyncMock)
+@patch('podcast_llm.generate.generate_audio', new_callable=AsyncMock)
 @patch('podcast_llm.generate.Checkpointer')
-def test_generate_with_audio_and_text_output(
+async def test_generate_with_audio_and_text_output(
     mock_checkpointer_class,
     mock_generate_audio,
     mock_write_final,
@@ -39,7 +44,7 @@ def test_generate_with_audio_and_text_output(
 ) -> None:
     """Test full podcast generation with both audio and text output."""
     # Setup
-    mock_checkpointer_class.return_value = mock_checkpointer()
+    mock_checkpointer_class.return_value = mock_checkpointer_instance_for_test() # Use simplified mock
     mock_research_background.return_value = ['background']
     mock_outline.return_value = PodcastOutline(sections=[
         PodcastSection(title='Section1', subsections=[
@@ -58,7 +63,7 @@ def test_generate_with_audio_and_text_output(
         os.environ[e] = 'foo'
 
     # Execute
-    generate(
+    await generate(
         topic='test topic',
         mode='research',
         qa_rounds=2,
@@ -74,17 +79,18 @@ def test_generate_with_audio_and_text_output(
     assert text_output.exists()
 
 
-def test_generate_without_outputs() -> None:
+@pytest.mark.asyncio
+async def test_generate_without_outputs() -> None:
     """Test generation without audio or text output."""
     with patch('podcast_llm.generate.Checkpointer') as mock_checkpointer_class:
-        mock_checkpointer = Mock()
-        mock_checkpointer_class.return_value = mock_checkpointer
+        mock_checkpointer_instance = mock_checkpointer_instance_for_test()
+        mock_checkpointer_class.return_value = mock_checkpointer_instance
 
         for e in ['GOOGLE_API_KEY', 'ELEVENLABS_API_KEY',  'OPENAI_API_KEY',
                   'TAVILY_API_KEY', 'ANTHROPIC_API_KEY']:
             os.environ[e] = 'foo'
         
-        generate(
+        await generate(
             topic='test topic',
             mode='research',
             qa_rounds=2,
@@ -95,7 +101,7 @@ def test_generate_without_outputs() -> None:
             debug=False
         )
 
-        mock_checkpointer.checkpoint.assert_called()
+        mock_checkpointer_instance.checkpoint_async.assert_called()
 
 
 def test_parse_arguments() -> None:
