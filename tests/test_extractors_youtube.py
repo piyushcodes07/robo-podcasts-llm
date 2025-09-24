@@ -1,5 +1,6 @@
 import pytest
 from podcast_llm.extractors.youtube import YouTubeSourceDocument
+from unittest.mock import AsyncMock
 
 
 @pytest.mark.parametrize('url,expected_id', [
@@ -18,7 +19,8 @@ def test_extract_video_id(url: str, expected_id: str) -> None:
     assert extractor.video_id == expected_id
 
 
-def test_extract_transcript(mocker) -> None:
+@pytest.mark.asyncio
+async def test_extract_transcript(mocker) -> None:
     """Test transcript extraction with mocked YouTube API."""
     mock_transcript = [
         {'text': 'First line'},
@@ -31,13 +33,14 @@ def test_extract_transcript(mocker) -> None:
     )
     
     extractor = YouTubeSourceDocument('test_video_id')
-    transcript = extractor.extract()
+    transcript = await extractor.extract()
     
     assert transcript == 'First line Second line Third line'
     assert extractor.content == transcript
 
 
-def test_extract_transcript_failure(mocker) -> None:
+@pytest.mark.asyncio
+async def test_extract_transcript_failure(mocker) -> None:
     """Test transcript extraction handles API failures gracefully."""
     mocker.patch(
         'podcast_llm.extractors.youtube.YouTubeTranscriptApi.get_transcript',
@@ -46,4 +49,4 @@ def test_extract_transcript_failure(mocker) -> None:
     
     extractor = YouTubeSourceDocument('test_video_id')
     with pytest.raises(Exception):
-        extractor.extract()
+        await extractor.extract()
