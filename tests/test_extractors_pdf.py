@@ -17,7 +17,8 @@ def test_pdf_extractor_initialization() -> None:
     assert extractor.content is None
 
 
-def test_pdf_extraction(sample_pdf_path: Path, mocker) -> None:
+@pytest.mark.asyncio
+async def test_pdf_extraction(sample_pdf_path: Path, mocker) -> None:
     """Test PDF content extraction with mocked PyPDFLoader."""
     mock_pages = [
         mocker.Mock(page_content='Page 1 content'),
@@ -27,14 +28,15 @@ def test_pdf_extraction(sample_pdf_path: Path, mocker) -> None:
     mocker.patch('podcast_llm.extractors.pdf.PyPDFLoader.load', return_value=mock_pages)
     
     extractor = PDFSourceDocument(str(sample_pdf_path))
-    content = extractor.extract()
+    content = await extractor.extract()
     
     expected_content = 'Page 1 content\n\nPage 2 content\n\nPage 3 content'
     assert content == expected_content
     assert extractor.content == expected_content
 
 
-def test_pdf_extraction_failure(sample_pdf_path: Path, mocker) -> None:
+@pytest.mark.asyncio
+async def test_pdf_extraction_failure(sample_pdf_path: Path, mocker) -> None:
     """Test that PDF extraction handles errors gracefully."""
     mocker.patch(
         'podcast_llm.extractors.pdf.PyPDFLoader.load',
@@ -43,4 +45,4 @@ def test_pdf_extraction_failure(sample_pdf_path: Path, mocker) -> None:
     
     extractor = PDFSourceDocument(str(sample_pdf_path))
     with pytest.raises(Exception):
-        extractor.extract()
+        await extractor.extract()
