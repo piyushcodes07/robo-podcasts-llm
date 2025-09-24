@@ -4,7 +4,8 @@ from podcast_llm.extractors.plaintext import MarkdownSourceDocument, TextSourceD
 
 TEST_DATA_DIR = os.path.join(os.path.dirname(__file__), 'test_data')
 
-def test_markdown_document_extraction():
+@pytest.mark.asyncio
+async def test_markdown_document_extraction():
     """Test extracting content from a Markdown file"""
     md_path = os.path.join(TEST_DATA_DIR, 'sample.md')
     
@@ -15,7 +16,7 @@ def test_markdown_document_extraction():
     
     try:
         extractor = MarkdownSourceDocument(md_path)
-        content = extractor.extract()
+        content = await extractor.extract()
         
         assert content == test_content
         assert extractor.src_type == 'Markdown File'
@@ -25,7 +26,8 @@ def test_markdown_document_extraction():
         # Cleanup test file
         os.remove(md_path)
 
-def test_text_document_extraction():
+@pytest.mark.asyncio
+async def test_text_document_extraction():
     """Test extracting content from a plain text file"""
     txt_path = os.path.join(TEST_DATA_DIR, 'sample.txt')
     
@@ -36,7 +38,7 @@ def test_text_document_extraction():
     
     try:
         extractor = TextSourceDocument(txt_path)
-        content = extractor.extract()
+        content = await extractor.extract()
         
         assert content == test_content
         assert extractor.src_type == 'Text File'
@@ -46,15 +48,17 @@ def test_text_document_extraction():
         # Cleanup test file
         os.remove(txt_path)
 
-def test_file_not_found():
+@pytest.mark.asyncio
+async def test_file_not_found():
     """Test handling of non-existent files"""
     non_existent_file = os.path.join(TEST_DATA_DIR, 'does_not_exist.md')
     
     with pytest.raises(FileNotFoundError):
         extractor = MarkdownSourceDocument(non_existent_file)
-        extractor.extract()
+        await extractor.extract()
 
-def test_unicode_content():
+@pytest.mark.asyncio
+async def test_unicode_content():
     """Test handling of Unicode content in files"""
     unicode_path = os.path.join(TEST_DATA_DIR, 'unicode.txt')
     
@@ -65,7 +69,7 @@ def test_unicode_content():
     
     try:
         extractor = TextSourceDocument(unicode_path)
-        content = extractor.extract()
+        content = await extractor.extract()
         
         assert content == test_content
         assert extractor.content == test_content
