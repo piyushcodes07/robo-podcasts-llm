@@ -34,10 +34,11 @@ def test_word_document_initialization():
     assert extractor.content is None
 
 
-def test_extract_content(sample_docx):
+@pytest.mark.asyncio
+async def test_extract_content(sample_docx):
     """Test extracting content from a Word document."""
     extractor = WordSourceDocument(str(sample_docx))
-    content = extractor.extract()
+    content = await extractor.extract()
     
     assert "First paragraph" in content
     assert "Second paragraph" in content
@@ -48,26 +49,29 @@ def test_extract_content(sample_docx):
     assert extractor.content == content
 
 
-def test_file_not_found():
+@pytest.mark.asyncio
+async def test_file_not_found():
     """Test handling of non-existent files."""
     extractor = WordSourceDocument("nonexistent.docx")
     with pytest.raises(FileNotFoundError):
-        extractor.extract()
+        await extractor.extract()
 
 
-def test_invalid_file_extension():
+@pytest.mark.asyncio
+async def test_invalid_file_extension():
     """Test handling of invalid file extensions."""
     extractor = WordSourceDocument("document.txt")
     with pytest.raises(FileNotFoundError, match="Word document not found: document.txt"):
-        extractor.extract()
+        await extractor.extract()
 
 
-def test_empty_document(tmp_path):
+@pytest.mark.asyncio
+async def test_empty_document(tmp_path):
     """Test handling of empty documents."""
     doc_path = tmp_path / "empty.docx"
     doc = Document()
     doc.save(doc_path)
     
     extractor = WordSourceDocument(str(doc_path))
-    content = extractor.extract()
-    assert content == "" 
+    content = await extractor.extract()
+    assert content == ""
