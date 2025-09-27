@@ -39,7 +39,7 @@ from podcast_llm.models import (
     WikipediaPages
 )
 from podcast_llm.extractors.web import WebSourceDocument
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -72,33 +72,38 @@ def suggest_wikipedia_articles(config: PodcastConfig, topic: str) -> WikipediaPa
     return result
 
 
+
 def download_wikipedia_articles(suggestions: WikipediaPages) -> list:
     """
-    Download Wikipedia articles based on suggested page titles.
-
-    Takes a structured list of Wikipedia page suggestions and downloads the full content
-    of each article using the WikipediaRetriever. Handles errors gracefully if any
-    articles fail to download.
-
-    Args:
-        suggestions (WikipediaPages): Structured list of suggested Wikipedia page titles
-
-    Returns:
-        list: List of retrieved Wikipedia document objects containing page content and metadata
+    Download Wikipedia articles in parallel based on suggested page titles.
     """
+
     logger.info('Starting Wikipedia article download')
     retriever = WikipediaRetriever()
 
-    wikipedia_documents = []
-    for page in suggestions.pages:
-        logger.info(f'Retrieving article: {page.name}')
+    def fetch_article(page_name: str):
+        logger.info(f'Retrieving article: {page_name}')
         try:
-            wikipedia_documents.append(retriever.invoke(page.name)[0])
-            logger.debug(f'Successfully retrieved article: {page.name}')
+            return retriever.invoke(page_name)[0]
         except Exception as e:
-            logger.error(f'Failed to retrieve article {page.name}: {str(e)}')
+            logger.error(f'Failed to retrieve article {page_name}: {str(e)}')
+            return None
 
-    logger.info(f'Downloaded {len(wikipedia_documents)} Wikipedia articles')
+    wikipedia_documents = []
+    with ThreadPoolExecutor(max_workers=min(32, len(suggestions.pages))) as executor:  # tune max_workers as needed
+        future_to_page = {executor.submit(fetch_article, page.name): page for page in suggestions.pages}
+
+        for future in as_completed(future_to_page):
+            page = future_to_page[future]
+            try:
+                result = future.result()
+                if result:
+                    wikipedia_documents.append(result)
+                    logger.debug(f'Successfully retrieved article: {page.name}')
+            except Exception as e:
+                logger.error(f'Error retrieving {page.name}: {str(e)}')
+
+    logger.info(f'Downloaded {len(wikipedia_documents)} Wikipedia articles (out of {len(suggestions.pages)})')
     return wikipedia_documents
 
 
@@ -117,7 +122,7 @@ def research_background_info(config: PodcastConfig, topic: str) -> list:
         dict: List of retrieved Wikipedia document objects containing article content and metadata
     """
     logger.info(f'Starting research for topic: {topic}')
-    
+
     suggestions = suggest_wikipedia_articles(config, topic)
     wikipedia_content = download_wikipedia_articles(suggestions)
 
@@ -143,10 +148,10 @@ def perform_tavily_queries(config: PodcastConfig, queries: SearchQueries) -> lis
     tavily_client = TavilyClient(api_key=config.tavily_api_key)
 
     exclude_domains = [
-        "wikipedia.org", 
-        "youtube.com", 
-        "books.google.com", 
-        "academia.edu", 
+        "wikipedia.org",
+        "youtube.com",
+        "books.google.com",
+        "academia.edu",
         "washingtonpost.com"
     ]
 
@@ -155,7 +160,7 @@ def perform_tavily_queries(config: PodcastConfig, queries: SearchQueries) -> lis
         logger.info(f"Searching for {query.query}")
         response = tavily_client.search(query.query, exclude_domains=exclude_domains, max_results=5)
         urls_to_scrape.update([
-            result['url'] for result in response['results'] 
+            result['url'] for result in response['results']
             if not result['url'].endswith(".pdf")])
 
     return list(urls_to_scrape)
@@ -181,7 +186,7 @@ def download_page_content(urls: List[str]) -> List[Document]:
             }
     """
     logger.info('Downloading page content from URLs.')
-    
+
     downloaded_articles = []
     for url in urls:
         try:
@@ -190,7 +195,7 @@ def download_page_content(urls: List[str]) -> List[Document]:
             downloaded_articles.append(web_source_doc.as_langchain_document())
         except Exception as e:
             logger.error(f'Unexpected error downloading {url}: {str(e)}')
-            
+
     logger.info(f'Successfully downloaded {len(downloaded_articles)} articles')
     return downloaded_articles
 
@@ -199,7 +204,7 @@ def research_discussion_topics(config: PodcastConfig, topic: str, outline: Podca
     """
     Research in-depth content for podcast discussion topics.
 
-    Takes a podcast topic and outline, then uses LangChain and GPT-4 to generate targeted 
+    Takes a podcast topic and outline, then uses LangChain and GPT-4 to generate targeted
     search queries. These queries are used to find relevant articles via Tavily search.
     The articles are then downloaded and processed to provide detailed research material
     for each section of the podcast.
@@ -212,7 +217,7 @@ def research_discussion_topics(config: PodcastConfig, topic: str, outline: Podca
         list: List of dictionaries containing downloaded article content with structure:
             {
                 'url': str,      # Source URL
-                'title': str,    # Article title  
+                'title': str,    # Article title
                 'text': str      # Article content
             }
     """

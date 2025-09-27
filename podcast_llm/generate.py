@@ -60,7 +60,7 @@ def generate(
 ) -> None:
     """
     Generate a podcast episode.
-    
+
     Args:
         topic: Topic of the podcast
         mode: Generation mode - either 'research' or 'context'
@@ -75,7 +75,7 @@ def generate(
     """
     log_level = logging.DEBUG if debug else logging.INFO
     setup_logging(log_level, output_file=log_file)
-    
+
     config = PodcastConfig.load(yaml_path=config)
 
     checkpointer = Checkpointer(
@@ -120,7 +120,7 @@ def generate(
         [config, topic, outline, background_info, deep_info, qa_rounds],
         stage_name='draft_script'
     )
-    
+
     final_script = checkpointer.checkpoint(
         write_final_script,
         [config, topic, draft_script],
@@ -203,10 +203,10 @@ def parse_arguments() -> argparse.Namespace:
 def main() -> None:
     """Main entry point for the CLI."""
     args = parse_arguments()
-    
+
     if args.mode == 'context' and not args.sources:
         raise ValueError("--sources must be provided when using context mode")
-        
+
     generate(
         topic=args.topic,
         mode=args.mode,
