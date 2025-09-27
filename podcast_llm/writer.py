@@ -27,6 +27,7 @@ Example:
 
 import logging
 from typing import List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
@@ -366,66 +367,65 @@ def rewrite_script_section(section: list, rewriter_chain) -> list:
 
 
 def write_final_script(
-    config: PodcastConfig, topic: str, draft_script: list, batch_size: int = 4
+    config: PodcastConfig,
+    topic: str,
+    draft_script: list,
+    batch_size: int = 4,
+    max_workers: int = 4,
 ) -> list:
-    """
-    Rewrite a draft podcast script to improve flow, naturalness and quality.
-
-    Takes a draft script consisting of Question/Answer exchanges and processes it in batches,
-    using an LLM to improve the conversational flow, word choice, and overall quality while
-    maintaining the core content and structure. The script is processed in batches to manage
-    context length and rate limits.
-
-    Args:
-        draft_script (list): List of Question/Answer objects representing the full draft script
-        batch_size (int, optional): Number of Q/A exchanges to process in each batch. Defaults to 4.
-
-    Returns:
-        list: List of dictionaries containing the rewritten script lines with structure:
-            {
-                'speaker': str,  # Speaker identifier ('Interviewer' or 'Interviewee')
-                'text': str      # Rewritten line content
-            }
-    """
-    logger.info("Processing draft script in batches")
+    logger.info("Processing draft script in parallel batches")
 
     rewriter_prompthub_path = "evandempsey/podcast_rewriter:181421e2"
     rewriter_prompt = hub.pull(rewriter_prompthub_path)
-    logger.info(f"Got prompt from hub: {rewriter_prompthub_path}")
 
     rate_limiter = InMemoryRateLimiter(
-        requests_per_second=0.2, check_every_n_seconds=0.1, max_bucket_size=10
+        requests_per_second=50, check_every_n_seconds=0.1, max_bucket_size=10
     )
 
-    long_context_llm = get_long_context_llm(config, rate_limiter)
     long_context_llm = get_long_context_llm(config, rate_limiter)
     rewriter_chain = rewriter_prompt | long_context_llm.with_structured_output(Script)
 
+    batches = [
+        draft_script[i : i + batch_size]
+        for i in range(0, len(draft_script), batch_size)
+    ]
+
     final_script = []
 
-    # Process script in batches of bath_size
-    for i in range(0, len(draft_script), batch_size):
-        logger.info(
-            f"Rewriting lines {i + 1} to {i + batch_size} of {len(draft_script)}"
-        )
-        batch = draft_script[i : i + batch_size]
-        final_script.extend(rewrite_script_section(batch, rewriter_chain))
-
-    # Add intro line
-    final_script.insert(
-        0,
-        {
-            "speaker": "Interviewer",
-            "text": config.intro.format(topic=topic, podcast_name=config.podcast_name),
-        },
-    )
-
-    # Add outro line
-    final_script.append(
-        {
-            "speaker": "Interviewer",
-            "text": config.outro.format(topic=topic, podcast_name=config.podcast_name),
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(rewrite_script_section, batch, rewriter_chain): idx
+            for idx, batch in enumerate(batches)
         }
+
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                result = future.result()
+                final_script.extend(result)
+                logger.info(f"Finished rewriting batch {idx + 1}/{len(batches)}")
+            except Exception as e:
+                logger.error(f"Batch {idx + 1} failed: {e}")
+
+    # Assemble intro/outro efficiently
+    final_script = (
+        [
+            {
+                "speaker": "Interviewer",
+                "text": config.intro.format(
+                    topic=topic, podcast_name=config.podcast_name
+                ),
+            }
+        ]
+        + final_script
+        + [
+            {
+                "speaker": "Interviewer",
+                "text": config.outro.format(
+                    topic=topic, podcast_name=config.podcast_name
+                ),
+            }
+        ]
     )
 
     return final_script
