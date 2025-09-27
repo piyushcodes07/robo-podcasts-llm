@@ -202,6 +202,10 @@ def answer_question(
     )
 
 
+interviewer_prompt = hub.pull("evandempsey/podcast_interviewer_role:bc03af97")
+interviewee_prompt = hub.pull("evandempsey/podcast_interviewee_role:0832c140")
+
+
 async def discuss(
     config: PodcastConfig,
     topic: str,
@@ -212,18 +216,21 @@ async def discuss(
 ) -> list:
     """
     Parallelized podcast discussion generator.
-    Preserves order within each subsection (Q1→A1→Q2→A2, ...)
-    but runs subsections concurrently.
+    - Preserves Q→A order inside each subsection.
+    - Runs all subsections across all sections concurrently.
     """
+
     logger.info(f"Simulating discussion on: {topic}")
 
-    # load prompts
-    interviewer_prompt = hub.pull("evandempsey/podcast_interviewer_role:bc03af97")
-    interviewee_prompt = hub.pull("evandempsey/podcast_interviewee_role:0832c140")
+    # load prompts concurrently if hub.pull is async
+    # interviewer_prompt, interviewee_prompt = await asyncio.gather(
+    #     hub.pull("evandempsey/podcast_interviewer_role:bc03af97"),
+    #     hub.pull("evandempsey/podcast_interviewee_role:0832c140"),
+    # )
 
     # rate limiter + LLMs
     rate_limiter = InMemoryRateLimiter(
-        requests_per_second=0.2, check_every_n_seconds=0.1, max_bucket_size=10
+        requests_per_second=50, check_every_n_seconds=0.1, max_bucket_size=150
     )
     interviewer_llm = get_long_context_llm(config, rate_limiter)
     interviewee_llm = get_long_context_llm(config, rate_limiter)
@@ -260,19 +267,25 @@ async def discuss(
                 interviewee_chain,
             )
             draft_discussion.extend([q, a])
-        return draft_discussion
+        return (section.title, subsection.title, draft_discussion)
 
-    # launch subsections concurrently
-    tasks = []
-    for section in outline.sections:
-        for subsection in section.subsections:
-            tasks.append(process_subsection(section, subsection))
-
+    # run ALL subsections (across all sections) concurrently
+    tasks = [
+        process_subsection(section, subsection)
+        for section in outline.sections
+        for subsection in section.subsections
+    ]
     results = await asyncio.gather(*tasks)
 
-    # flatten while preserving per-subsection order
-    draft_discussion = [item for discussion in results for item in discussion]
-    return draft_discussion
+    # regroup results by section → subsection
+    final_discussion = []
+    for section in outline.sections:
+        for subsection in section.subsections:
+            # find the matching result
+            for sec, sub, draft in results:
+                if sec == section.title and sub == subsection.title:
+                    final_discussion.extend(draft)
+    return final_discussion
 
 
 async def write_draft_script(
@@ -366,20 +379,21 @@ def rewrite_script_section(section: list, rewriter_chain) -> list:
     return [{"speaker": line.speaker, "text": line.text} for line in rewritten.lines]
 
 
+rewriter_prompthub_path = "evandempsey/podcast_rewriter:181421e2"
+rewriter_prompt = hub.pull(rewriter_prompthub_path)
+
+
 def write_final_script(
     config: PodcastConfig,
     topic: str,
     draft_script: list,
-    batch_size: int = 4,
-    max_workers: int = 4,
+    batch_size: int = 20,
+    max_workers: int = 20,
 ) -> list:
     logger.info("Processing draft script in parallel batches")
 
-    rewriter_prompthub_path = "evandempsey/podcast_rewriter:181421e2"
-    rewriter_prompt = hub.pull(rewriter_prompthub_path)
-
     rate_limiter = InMemoryRateLimiter(
-        requests_per_second=50, check_every_n_seconds=0.1, max_bucket_size=10
+        requests_per_second=90, check_every_n_seconds=0.2, max_bucket_size=100
     )
 
     long_context_llm = get_long_context_llm(config, rate_limiter)

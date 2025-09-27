@@ -23,19 +23,10 @@ import argparse
 import asyncio
 from pathlib import Path
 from typing import Optional, List, Literal
-from podcast_llm.research import (
-    research_background_info,
-    research_discussion_topics
-)
-from podcast_llm.writer import (
-    write_draft_script,
-    write_final_script
-)
+from podcast_llm.research import research_background_info, research_discussion_topics
+from podcast_llm.writer import write_draft_script, write_final_script
 from podcast_llm.outline import outline_episode
-from podcast_llm.utils.checkpointer import (
-    Checkpointer,
-    to_snake_case
-)
+from podcast_llm.utils.checkpointer import Checkpointer, to_snake_case
 from podcast_llm.text_to_speech import generate_audio
 from podcast_llm.config import PodcastConfig, setup_logging
 from podcast_llm.utils.text import generate_markdown_script
@@ -44,12 +35,12 @@ import logging
 
 
 PACKAGE_ROOT = Path(__file__).parent
-DEFAULT_CONFIG_PATH = os.path.join(PACKAGE_ROOT, 'config', 'config.yaml')
+DEFAULT_CONFIG_PATH = os.path.join(PACKAGE_ROOT, "config", "config.yaml")
 
 
 async def generate(
     topic: str,
-    mode: Literal['research', 'context'],
+    mode: Literal["research", "context"],
     sources: Optional[List[str]] = None,
     qa_rounds: int = 2,
     use_checkpoints: bool = True,
@@ -57,7 +48,7 @@ async def generate(
     text_output: Optional[str] = None,
     config: str = DEFAULT_CONFIG_PATH,
     debug: bool = False,
-    log_file: Optional[str] = None
+    log_file: Optional[str] = None,
 ) -> None:
     """
     Generate a podcast episode.
@@ -74,6 +65,7 @@ async def generate(
         debug: Whether to enable debug logging
         log_file: Log output file
     """
+    print("QA ROUNDS " + str(qa_rounds))
     log_level = logging.DEBUG if debug else logging.INFO
     setup_logging(log_level, output_file=log_file)
 
@@ -81,37 +73,29 @@ async def generate(
 
     checkpointer = Checkpointer(
         checkpoint_key=f"{to_snake_case(topic)}_qa_{qa_rounds}_",
-        enabled=use_checkpoints
+        enabled=use_checkpoints,
     )
 
     # Get background info based on mode
-    if mode == 'research':
+    if mode == "research":
         background_info = await checkpointer.checkpoint(
-            research_background_info,
-            [config, topic],
-            stage_name='background_info'
+            research_background_info, [config, topic], stage_name="background_info"
         )
     else:  # context mode
         if not sources:
             raise ValueError("Sources must be provided when using context mode")
         background_info = await checkpointer.checkpoint(
-            extract_content_from_sources,
-            [sources],
-            stage_name='background_info'
+            extract_content_from_sources, [sources], stage_name="background_info"
         )
 
     outline = await checkpointer.checkpoint(
-        outline_episode,
-        [config, topic, background_info],
-        stage_name='outline'
+        outline_episode, [config, topic, background_info], stage_name="outline"
     )
 
     # Get detailed info based on mode
-    if mode == 'research':
+    if mode == "research":
         deep_info = await checkpointer.checkpoint(
-            research_discussion_topics,
-            [config, topic, outline],
-            stage_name='deep_info'
+            research_discussion_topics, [config, topic, outline], stage_name="deep_info"
         )
     else:
         deep_info = background_info  # Use the same extracted content
@@ -119,17 +103,15 @@ async def generate(
     draft_script = await checkpointer.checkpoint(
         write_draft_script,
         [config, topic, outline, background_info, deep_info, qa_rounds],
-        stage_name='draft_script'
+        stage_name="draft_script",
     )
 
     final_script = await checkpointer.checkpoint(
-        write_final_script,
-        [config, topic, draft_script],
-        stage_name='final_script'
+        write_final_script, [config, topic, draft_script], stage_name="final_script"
     )
 
     if text_output:
-        with open(text_output, 'w+') as f:
+        with open(text_output, "w+") as f:
             f.write(generate_markdown_script(topic, outline, final_script))
 
     if audio_output:
@@ -138,66 +120,57 @@ async def generate(
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description='Generate podcasts using LLMs and TTS'
+    parser = argparse.ArgumentParser(description="Generate podcasts using LLMs and TTS")
+    parser.add_argument("topic", help="Topic of the podcast")
+    parser.add_argument(
+        "--mode",
+        choices=["research", "context"],
+        default="research",
+        help="Generation mode: research (automatic research) or context (use provided sources)",
     )
     parser.add_argument(
-        'topic',
-        help='Topic of the podcast'
+        "--sources",
+        nargs="+",
+        help="List of URLs and file paths to use as source material (required for context mode)",
     )
     parser.add_argument(
-        '--mode',
-        choices=['research', 'context'],
-        default='research',
-        help='Generation mode: research (automatic research) or context (use provided sources)'
-    )
-    parser.add_argument(
-        '--sources',
-        nargs='+',
-        help='List of URLs and file paths to use as source material (required for context mode)'
-    )
-    parser.add_argument(
-        '--qa-rounds',
+        "--qa-rounds",
         type=int,
         default=2,
-        help='Number of question-answer rounds per section'
+        help="Number of question-answer rounds per section",
     )
     parser.add_argument(
-        '--checkpoint',
-        action='store_true',
-        dest='checkpoint',
+        "--checkpoint",
+        action="store_true",
+        dest="checkpoint",
         default=True,
-        help='Enable checkpointing (default: True)'
+        help="Enable checkpointing (default: True)",
     )
     parser.add_argument(
-        '--no-checkpoint',
-        action='store_false',
-        dest='checkpoint',
-        help='Disable checkpointing'
+        "--no-checkpoint",
+        action="store_false",
+        dest="checkpoint",
+        help="Disable checkpointing",
     )
     parser.add_argument(
-        '--audio-output',
+        "--audio-output",
         type=str,
         default=None,
-        help='Output filename for the generated audio'
+        help="Output filename for the generated audio",
     )
     parser.add_argument(
-        '--text-output',
+        "--text-output",
         type=str,
         default=None,
-        help='Output filename for the generated text script'
+        help="Output filename for the generated text script",
     )
     parser.add_argument(
-        '--config',
+        "--config",
         type=str,
         default=DEFAULT_CONFIG_PATH,
-        help='Path to YAML config file'
+        help="Path to YAML config file",
     )
-    parser.add_argument(
-        '--debug',
-        action='store_true',
-        help='Enable debug logging'
-    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     return parser.parse_args()
 
 
@@ -205,21 +178,23 @@ def main() -> None:
     """Main entry point for the CLI."""
     args = parse_arguments()
 
-    if args.mode == 'context' and not args.sources:
+    if args.mode == "context" and not args.sources:
         raise ValueError("--sources must be provided when using context mode")
 
-    asyncio.run(generate(
-        topic=args.topic,
-        mode=args.mode,
-        sources=args.sources,
-        qa_rounds=args.qa_rounds,
-        use_checkpoints=args.checkpoint,
-        audio_output=args.audio_output,
-        text_output=args.text_output,
-        config=args.config,
-        debug=args.debug
-    ))
+    asyncio.run(
+        generate(
+            topic=args.topic,
+            mode=args.mode,
+            sources=args.sources,
+            qa_rounds=args.qa_rounds,
+            use_checkpoints=args.checkpoint,
+            audio_output=args.audio_output,
+            text_output=args.text_output,
+            config=args.config,
+            debug=args.debug,
+        )
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

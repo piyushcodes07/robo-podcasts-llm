@@ -180,7 +180,7 @@ def download_page_content(urls: List[str]) -> List[Document]:
             logger.error(f"Error downloading {url}: {str(e)}")
             return None
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=50) as executor:
         futures = [executor.submit(fetch_and_parse, url) for url in urls]
         for future in as_completed(futures):
             doc = future.result()

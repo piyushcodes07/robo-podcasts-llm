@@ -27,7 +27,7 @@ tts_settings:
   openai:
     voice_mapping:
       Interviewer: shimmer
-      Interviewee: onyx
+      Interviewee: verse
     model: gpt-4o-mini-tts
 
 # Audio output settings
