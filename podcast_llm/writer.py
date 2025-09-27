@@ -274,7 +274,7 @@ async def discuss(
     return draft_discussion
 
 
-def write_draft_script(
+async def write_draft_script(
     config: PodcastConfig,
     topic: str,
     outline: PodcastOutline,
@@ -334,7 +334,7 @@ def write_draft_script(
         documents=chunks, embedding=embeddings
     )
 
-    draft_script = discuss(
+    draft_script = await discuss(
         config, topic, outline, background_info, vector_store, qa_rounds
     )
     return draft_script

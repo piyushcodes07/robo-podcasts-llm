@@ -47,7 +47,7 @@ async def generate_episode(request: PodcastRequest):
     """
     Generates a new podcast episode and returns the audio file.
     """
-    generate(
+    await generate(
         topic=request.topic,
         mode=request.mode,
         sources=request.sources,

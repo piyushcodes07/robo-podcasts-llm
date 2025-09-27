@@ -20,6 +20,7 @@ Example:
 
 import os
 import argparse
+import asyncio
 from pathlib import Path
 from typing import Optional, List, Literal
 from podcast_llm.research import (
@@ -46,7 +47,7 @@ PACKAGE_ROOT = Path(__file__).parent
 DEFAULT_CONFIG_PATH = os.path.join(PACKAGE_ROOT, 'config', 'config.yaml')
 
 
-def generate(
+async def generate(
     topic: str,
     mode: Literal['research', 'context'],
     sources: Optional[List[str]] = None,
@@ -85,7 +86,7 @@ def generate(
 
     # Get background info based on mode
     if mode == 'research':
-        background_info = checkpointer.checkpoint(
+        background_info = await checkpointer.checkpoint(
             research_background_info,
             [config, topic],
             stage_name='background_info'
@@ -93,13 +94,13 @@ def generate(
     else:  # context mode
         if not sources:
             raise ValueError("Sources must be provided when using context mode")
-        background_info = checkpointer.checkpoint(
+        background_info = await checkpointer.checkpoint(
             extract_content_from_sources,
             [sources],
             stage_name='background_info'
         )
 
-    outline = checkpointer.checkpoint(
+    outline = await checkpointer.checkpoint(
         outline_episode,
         [config, topic, background_info],
         stage_name='outline'
@@ -107,7 +108,7 @@ def generate(
 
     # Get detailed info based on mode
     if mode == 'research':
-        deep_info = checkpointer.checkpoint(
+        deep_info = await checkpointer.checkpoint(
             research_discussion_topics,
             [config, topic, outline],
             stage_name='deep_info'
@@ -115,13 +116,13 @@ def generate(
     else:
         deep_info = background_info  # Use the same extracted content
 
-    draft_script = checkpointer.checkpoint(
+    draft_script = await checkpointer.checkpoint(
         write_draft_script,
         [config, topic, outline, background_info, deep_info, qa_rounds],
         stage_name='draft_script'
     )
 
-    final_script = checkpointer.checkpoint(
+    final_script = await checkpointer.checkpoint(
         write_final_script,
         [config, topic, draft_script],
         stage_name='final_script'
@@ -207,7 +208,7 @@ def main() -> None:
     if args.mode == 'context' and not args.sources:
         raise ValueError("--sources must be provided when using context mode")
 
-    generate(
+    asyncio.run(generate(
         topic=args.topic,
         mode=args.mode,
         sources=args.sources,
@@ -217,7 +218,7 @@ def main() -> None:
         text_output=args.text_output,
         config=args.config,
         debug=args.debug
-    )
+    ))
 
 
 if __name__ == '__main__':
