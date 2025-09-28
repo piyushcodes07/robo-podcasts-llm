@@ -28,7 +28,7 @@ information while maintaining rate limits and handling errors gracefully.
 
 
 import logging
-from typing import List
+from typing import List, Optional
 from langchain import hub
 from langchain_community.retrievers import WikipediaRetriever
 from langchain_core.documents import Document
@@ -39,6 +39,7 @@ from podcast_llm.utils.llm import get_fast_llm
 from podcast_llm.models import SearchQueries, WikipediaPages
 from podcast_llm.extractors.web import WebSourceDocument
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from podcast_llm.streamer import streamer
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,9 @@ def suggest_wikipedia_articles(config: PodcastConfig, topic: str) -> WikipediaPa
     return result
 
 
-def download_wikipedia_articles(suggestions: WikipediaPages) -> list:
+async def download_wikipedia_articles(
+    suggestions: WikipediaPages, user_id: Optional[str] = None
+) -> list:
     """
     Download Wikipedia articles in parallel based on suggested page titles.
     """
@@ -79,6 +82,7 @@ def download_wikipedia_articles(suggestions: WikipediaPages) -> list:
 
     def fetch_article(page_name: str):
         logger.info(f"Retrieving article: {page_name}")
+
         try:
             return retriever.invoke(page_name)[0]
         except Exception as e:
@@ -86,8 +90,11 @@ def download_wikipedia_articles(suggestions: WikipediaPages) -> list:
             return None
 
     wikipedia_documents = []
+    total_articles = len(suggestions.pages)
+    downloaded_count = 0
+
     with ThreadPoolExecutor(
-        max_workers=min(32, len(suggestions.pages))
+        max_workers=min(32, total_articles)
     ) as executor:  # tune max_workers as needed
         future_to_page = {
             executor.submit(fetch_article, page.name): page
@@ -100,17 +107,30 @@ def download_wikipedia_articles(suggestions: WikipediaPages) -> list:
                 result = future.result()
                 if result:
                     wikipedia_documents.append(result)
+                    downloaded_count += 1
+                    if user_id:
+                        progress = int((downloaded_count / total_articles) * 100)
+                        asyncio.create_task(
+                            streamer.send(
+                                user_id,
+                                "Research",
+                                progress,
+                                f"Downloaded Wikipedia article: {page.name}",
+                            )
+                        )
                     logger.debug(f"Successfully retrieved article: {page.name}")
             except Exception as e:
                 logger.error(f"Error retrieving {page.name}: {str(e)}")
 
     logger.info(
-        f"Downloaded {len(wikipedia_documents)} Wikipedia articles (out of {len(suggestions.pages)})"
+        f"Downloaded {len(wikipedia_documents)} Wikipedia articles (out of {total_articles})"
     )
     return wikipedia_documents
 
 
-def research_background_info(config: PodcastConfig, topic: str) -> list:
+async def research_background_info(
+    config: PodcastConfig, topic: str, user_id: Optional[str] = None
+) -> list:
     """
     Research background information for a podcast topic.
 
@@ -125,9 +145,19 @@ def research_background_info(config: PodcastConfig, topic: str) -> list:
         dict: List of retrieved Wikipedia document objects containing article content and metadata
     """
     logger.info(f"Starting research for topic: {topic}")
+    if user_id:
+        await streamer.send(user_id, "Research", 10, "Suggesting Wikipedia articles...")
 
     suggestions = suggest_wikipedia_articles(config, topic)
-    wikipedia_content = download_wikipedia_articles(suggestions)
+    if user_id:
+        await streamer.send(
+            user_id,
+            "Research",
+            30,
+            f"Found {len(suggestions.pages)} Wikipedia articles. Downloading...\n {str(suggestions)}",
+        )
+
+    wikipedia_content = await download_wikipedia_articles(suggestions, user_id)
 
     logger.info("Research completed successfully")
     return wikipedia_content

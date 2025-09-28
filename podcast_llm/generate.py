@@ -31,6 +31,7 @@ from podcast_llm.text_to_speech import generate_audio
 from podcast_llm.config import PodcastConfig, setup_logging
 from podcast_llm.utils.text import generate_markdown_script
 from podcast_llm.extractors import extract_content_from_sources
+from podcast_llm.streamer import streamer
 import logging
 
 
@@ -49,6 +50,7 @@ async def generate(
     config: str = DEFAULT_CONFIG_PATH,
     debug: bool = False,
     log_file: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> None:
     """
     Generate a podcast episode.
@@ -78,19 +80,31 @@ async def generate(
 
     # Get background info based on mode
     if mode == "research":
+        if user_id:
+            await streamer.send(user_id, "Research", 0, "Starting background research...")
         background_info = await checkpointer.checkpoint(
-            research_background_info, [config, topic], stage_name="background_info"
+            research_background_info, [config, topic, user_id], stage_name="background_info"
         )
+        if user_id:
+            await streamer.send(user_id, "Research", 100, "Background research completed.")
     else:  # context mode
         if not sources:
             raise ValueError("Sources must be provided when using context mode")
+        if user_id:
+            await streamer.send(user_id, "Extraction", 0, "Starting content extraction from sources...")
         background_info = await checkpointer.checkpoint(
             extract_content_from_sources, [sources], stage_name="background_info"
         )
+        if user_id:
+            await streamer.send(user_id, "Extraction", 100, "Content extraction completed.")
 
+    if user_id:
+        await streamer.send(user_id, "Outline", 0, "Generating episode outline...")
     outline = await checkpointer.checkpoint(
         outline_episode, [config, topic, background_info], stage_name="outline"
     )
+    if user_id:
+        await streamer.send(user_id, "Outline", 100, "Episode outline generated.")
 
     # Get detailed info based on mode
     if mode == "research":
