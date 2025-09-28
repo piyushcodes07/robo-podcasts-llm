@@ -14,7 +14,7 @@ Example:
 
 The module supports:
 - Standard youtube.com URLs (https://www.youtube.com/watch?v=VIDEO_ID)
-- Short youtu.be URLs (https://youtu.be/VIDEO_ID) 
+- Short youtu.be URLs (https://youtu.be/VIDEO_ID)
 - Embedded URLs (https://www.youtube.com/embed/VIDEO_ID)
 
 The extracted transcripts are returned as plain text and can be used as source
@@ -47,9 +47,10 @@ class YouTubeSourceDocument(BaseSourceDocument):
         content (Optional[str]): The extracted transcript text
         video_id (str): The parsed YouTube video ID
     """
+
     def __init__(self, source: str) -> None:
         self.src = source
-        self.src_type = 'YouTube video'
+        self.src_type = "YouTube video"
         self.title = f"{self.src_type}: {source}"
         self.content: Optional[str] = None
         self.video_id = self._extract_video_id()
@@ -57,33 +58,28 @@ class YouTubeSourceDocument(BaseSourceDocument):
     def _extract_video_id(self) -> str:
         """
         Extract YouTube video ID from various URL formats.
-        
-        Handles standard youtube.com URLs, youtu.be short URLs, 
+
+        Handles standard youtube.com URLs, youtu.be short URLs,
         and embedded URLs. Returns just the video ID portion.
-        
+
         Returns:
             str: The YouTube video ID
         """
-        # Handle youtu.be short URLs
-        if 'youtu.be' in self.src:
-            return self.src.split('/')[-1].split('?')[0]
-            
-        # Handle youtube.com URLs
-        if 'v=' in self.src:
-            return self.src.split('v=')[1].split('&')[0]
+        if "youtu.be" in self.src:
+            return self.src.split("/")[-1].split("?")[0]
 
-        # Handle embed URLs
-        if 'embed/' in self.src:
-            return self.src.split('embed/')[-1].split('?')[0]
+        if "v=" in self.src:
+            return self.src.split("v=")[1].split("&")[0]
 
-        # Handle embed URLs
-        if 'shorts/' in self.src:
-            return self.src.split('shorts/')[-1].split('?')[0]
-            
-        # If no URL patterns match, assume src is already a video ID
+        if "embed/" in self.src:
+            return self.src.split("embed/")[-1].split("?")[0]
+
+        if "shorts/" in self.src:
+            return self.src.split("shorts/")[-1].split("?")[0]
+
         return self.src
 
     def extract(self) -> str:
         transcript = YouTubeTranscriptApi.get_transcript(self.video_id)
-        self.content = ' '.join([line['text'] for line in transcript])
+        self.content = " ".join([line["text"] for line in transcript])
         return self.content
