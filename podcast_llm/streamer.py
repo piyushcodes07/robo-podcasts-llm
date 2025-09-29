@@ -1,4 +1,5 @@
-from typing import Dict, Optional
+import json
+from typing import Any, Dict, Optional
 from fastapi import WebSocket
 import asyncio
 
@@ -23,12 +24,20 @@ class Streamer:
         stage: str,
         progress: int,
         message: str,
+        *,
+        update_payload: Optional[Any] = None,
         url: Optional[str] = None,
     ):
+        print("log from streamer$$$$$$$$$$$$$$", update_payload)
         """Send structured update to the correct client"""
         websocket = self.active_connections.get(user_id)
         if websocket:
-            payload = {"stage": stage, "progress": progress, "message": message}
+            payload = {
+                "stage": stage,
+                "progress": progress,
+                "message": message,
+                "payload": update_payload,
+            }
             if url:
                 payload["url"] = url
             try:

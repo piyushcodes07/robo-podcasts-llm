@@ -119,7 +119,7 @@ def outline_episode(
 
     outline_chain = outline_prompt | outline_llm.with_structured_output(PodcastOutline)
 
-    outline = outline_chain.invoke(
+    outline: PodcastOutline = outline_chain.invoke(
         {
             "episode_structure": config.episode_structure_for_prompt,
             "topic": topic,

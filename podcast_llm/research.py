@@ -40,6 +40,7 @@ from podcast_llm.models import SearchQueries, WikipediaPages
 from podcast_llm.extractors.web import WebSourceDocument
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from podcast_llm.streamer import streamer
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -110,14 +111,6 @@ async def download_wikipedia_articles(
                     downloaded_count += 1
                     if user_id:
                         progress = int((downloaded_count / total_articles) * 100)
-                        asyncio.create_task(
-                            streamer.send(
-                                user_id,
-                                "Research",
-                                progress,
-                                f"Downloaded Wikipedia article: {page.name}",
-                            )
-                        )
                     logger.debug(f"Successfully retrieved article: {page.name}")
             except Exception as e:
                 logger.error(f"Error retrieving {page.name}: {str(e)}")
@@ -148,13 +141,15 @@ async def research_background_info(
     if user_id:
         await streamer.send(user_id, "Research", 10, "Suggesting Wikipedia articles...")
 
-    suggestions = suggest_wikipedia_articles(config, topic)
+    suggestions: WikipediaPages = suggest_wikipedia_articles(config, topic)
+    print("suggestions JSON********", suggestions)
     if user_id:
         await streamer.send(
             user_id,
             "Research",
             30,
-            f"Found {len(suggestions.pages)} Wikipedia articles. Downloading...\n {str(suggestions)}",
+            f"Found {len(suggestions.pages)} Wikipedia articles. Downloading...",
+            update_payload=[sug.name for sug in suggestions.pages],
         )
 
     wikipedia_content = await download_wikipedia_articles(suggestions, user_id)
