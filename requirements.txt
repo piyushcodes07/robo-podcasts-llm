@@ -136,4 +136,4 @@ urllib3==2.2.3
 websockets==13.1
 wikipedia==1.4.0
 yarl==1.16.0
-youtube-transcript-api==0.6.2
+youtube-transcript-api==1.2.2
