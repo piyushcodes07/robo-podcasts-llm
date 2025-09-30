@@ -1,0 +1,4 @@
+[console_scripts]
+podcast-llm=podcast_llm.generate:main
+podcast-llm-gui=podcast_llm.gui:main
+
