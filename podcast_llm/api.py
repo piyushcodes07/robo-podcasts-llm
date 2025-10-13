@@ -10,11 +10,25 @@ from podcast_llm.streamer import streamer  # import reusable module
 import shutil
 import tempfile
 from fastapi import File, UploadFile, Form
+from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI(
     title="Podcast LLM API",
     description="An API for generating podcast episodes from topics or source material.",
     version="0.1.0",
+)
+
+origins = [
+    "http://localhost:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -33,6 +47,7 @@ async def upload_and_generate(
     background_tasks: BackgroundTasks,
     topic: str = Form(...),
     mode: Literal["context", "research"] = Form(...),
+    main_user_id: str = Form(...),
     sources: Optional[List[str]] = Form(None),  # For URLs
     qa_rounds: int = Form(2),
     audio_output: Optional[str] = Form("podcast.mp3"),
@@ -63,6 +78,7 @@ async def upload_and_generate(
         try:
             await generate(
                 topic=topic,
+                main_user_id=main_user_id,
                 mode=mode,
                 sources=all_sources,
                 qa_rounds=qa_rounds,

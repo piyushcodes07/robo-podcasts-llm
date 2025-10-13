@@ -21,6 +21,7 @@ Example:
 import os
 import argparse
 import asyncio
+from podcast_llm.uploader import upload_mp3
 from pathlib import Path
 from typing import Optional, List, Literal
 from podcast_llm.models import PodcastOutline
@@ -42,6 +43,7 @@ DEFAULT_CONFIG_PATH = os.path.join(PACKAGE_ROOT, "config", "config.yaml")
 
 async def generate(
     topic: str,
+    main_user_id: str,
     mode: Literal["research", "context"],
     sources: Optional[List[str]] = None,
     qa_rounds: int = 2,
@@ -99,7 +101,11 @@ async def generate(
             raise ValueError("Sources must be provided when using context mode")
         if user_id:
             await streamer.send(
-                user_id, "Extraction", 0, "Starting content extraction from sources..."
+                user_id,
+                "Extraction",
+                0,
+                "Starting content extraction from sources...",
+                update_payload=sources,
             )
         background_info = await checkpointer.checkpoint(
             extract_content_from_sources, [sources], stage_name="background_info"
@@ -147,7 +153,7 @@ async def generate(
         deep_info = background_info  # Use the same extracted content
 
     if user_id:
-        await streamer.send(user_id, "Draft Script", 0, "Writing draft script...")
+        await streamer.send(user_id, "Draft Script", 10, "Writing draft script...")
     draft_script = await checkpointer.checkpoint(
         write_draft_script,
         [config, topic, outline, background_info, deep_info, qa_rounds],
@@ -157,7 +163,7 @@ async def generate(
         await streamer.send(user_id, "Draft Script", 100, "Draft script written.")
 
     if user_id:
-        await streamer.send(user_id, "Final Script", 0, "Writing final script...")
+        await streamer.send(user_id, "Final Script", 10, "Writing final script...")
     final_script = await checkpointer.checkpoint(
         write_final_script, [config, topic, draft_script], stage_name="final_script"
     )
@@ -173,11 +179,15 @@ async def generate(
             await streamer.send(
                 user_id, "Audio Generation", 0, "Generating final audio..."
             )
-        generate_audio(config, final_script, audio_output)
+        audio_path = generate_audio(config, final_script, audio_output)
+        print("audio path : ", audio_path)
         if user_id:
             await streamer.send(
                 user_id, "Audio Generation", 100, "Final audio generated."
             )
+        public_url = upload_mp3(user_id=main_user_id, local_file_path=audio_path)
+
+        print(public_url)
 
 
 def parse_arguments() -> argparse.Namespace:
