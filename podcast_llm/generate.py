@@ -188,6 +188,8 @@ async def generate(
         public_url = upload_mp3(user_id=main_user_id, local_file_path=audio_path)
 
         print(public_url)
+        if user_id:
+            streamer.disconnect(user_id)
 
 
 def parse_arguments() -> argparse.Namespace:
