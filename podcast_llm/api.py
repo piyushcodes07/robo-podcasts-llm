@@ -1,9 +1,10 @@
 import os
+
 from fastapi import FastAPI, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Literal
-
+from podcast_llm.search_tebi import search_tebi_objects
 from .generate import generate
 import asyncio
 from podcast_llm.streamer import streamer  # import reusable module
@@ -42,18 +43,28 @@ class PodcastRequest(BaseModel):
     user_id: str = "mock_user"
 
 
+class searchRequest(BaseModel):
+    search_prefix: str
+
+
+@app.post("/search")
+async def searchPodcast(request: searchRequest):
+    podcasts = search_tebi_objects(bucket_name="music-r2", prefix=request.search_prefix)
+    return {"podcasts": podcasts}
+
+
 @app.post("/generate/upload")
 async def upload_and_generate(
     background_tasks: BackgroundTasks,
     topic: str = Form(...),
     mode: Literal["context", "research"] = Form(...),
     main_user_id: str = Form(...),
-    sources: Optional[List[str]] = Form(None),  # For URLs
+    sources: Optional[List[str]] = Form(None),
     qa_rounds: int = Form(2),
     audio_output: Optional[str] = Form("podcast.mp3"),
     text_output: Optional[str] = Form("podcast.md"),
     user_id: str = Form("mock_user"),
-    files: Optional[List[UploadFile]] = File(None),  # For files
+    files: Optional[List[UploadFile]] = File(None),
 ):
     """
     Accepts uploaded files and URLs as sources for podcast generation.
