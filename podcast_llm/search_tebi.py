@@ -48,4 +48,4 @@ def search_tebi_objects(bucket_name: str, prefix: str):
             break
 
     print(keys)
-    return keys
+    return keys[1:]

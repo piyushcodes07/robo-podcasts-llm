@@ -22,6 +22,7 @@ app = FastAPI(
 
 origins = [
     "http://localhost:3000",
+    "https://neural-nerratives.vercel.app"
 ]
 
 app.add_middleware(
