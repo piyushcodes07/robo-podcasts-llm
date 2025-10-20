@@ -1,0 +1,8 @@
+.git
+.gitignore
+tests
+*.pyc
+__pycache__/
+.env
+.temp_output
+*.swp
