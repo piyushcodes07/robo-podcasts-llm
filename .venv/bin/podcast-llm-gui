@@ -1,6 +1,0 @@
-#!/home/rem/podcast-llm/.venv/bin/python
-import sys
-from podcast_llm.gui import main
-
-if __name__ == '__main__':
-    sys.exit(main())
