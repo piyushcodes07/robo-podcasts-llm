@@ -255,5 +255,5 @@ def research_discussion_topics(
     logger.info(f"Got {len(queries.queries)} suggested search queries")
 
     urls_to_scrape = perform_tavily_queries(config, queries)
-    page_content = download_page_content(urls_to_scrape)
-    return page_content
+    # page_content = download_page_content(urls_to_scrape)
+    return urls_to_scrape
