@@ -202,7 +202,7 @@ def download_page_content(urls: List[str]) -> List[Document]:
             web_source_doc.extract()
             return web_source_doc.as_langchain_document()
         except Exception as e:
-            logger.error(f"Error downloading {url}: {str(e)}")
+            logger.info(f"info downloading {url}: {str(e)}")
             return None
 
     with ThreadPoolExecutor(max_workers=50) as executor:
@@ -255,5 +255,6 @@ def research_discussion_topics(
     logger.info(f"Got {len(queries.queries)} suggested search queries")
 
     urls_to_scrape = perform_tavily_queries(config, queries)
-    # page_content = download_page_content(urls_to_scrape)
-    return urls_to_scrape
+    page_content = download_page_content(urls_to_scrape)
+    print("page content_________________________", page_content)
+    return page_content
