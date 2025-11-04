@@ -172,7 +172,7 @@ class PodcastConfig:
                         'Interviewer': 'alloy',
                         'Interviewee': 'fable'
                     },
-                    'model': 'tts-1'
+                    'model': 'gpt-4o-mini-tts'
                 }
             },
             'output_format': 'mp3',

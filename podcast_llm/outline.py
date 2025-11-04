@@ -11,7 +11,8 @@ consistent and high-quality outline generation.
 
 Functions:
     format_wikipedia_document: Formats Wikipedia content for use in prompts
-    outline_episode: Generates a complete podcast outline from a topic and research
+    summarize_background_chunk: Summarizes batches of background docs (map step)
+    outline_episode: Generates a complete podcast outline from topic + research (map–reduce)
 
 Example:
     outline = outline_episode(
@@ -22,14 +23,13 @@ Example:
     print(outline.as_str)
 """
 
-
 import logging
+from typing import List
+from concurrent.futures import ThreadPoolExecutor
 from langchain import hub
 from podcast_llm.config import PodcastConfig
-from podcast_llm.utils.llm import get_long_context_llm
-from podcast_llm.models import (
-    PodcastOutline
-)
+from podcast_llm.utils.llm import get_long_context_llm, get_fast_llm
+from podcast_llm.models import PodcastOutline
 
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ def format_wikipedia_document(doc):
     """
     Format a Wikipedia document for use in prompt context.
 
-    Takes a Wikipedia document object and formats its metadata and content into a 
+    Takes a Wikipedia document object and formats its metadata and content into a
     structured string format suitable for inclusion in LLM prompts. The format
     includes a header with the article title followed by the full article content.
 
@@ -52,37 +52,80 @@ def format_wikipedia_document(doc):
     return f"### {doc.metadata['title']}\n\n{doc.page_content}"
 
 
-def outline_episode(config: PodcastConfig, topic: str, background_info: list) -> PodcastOutline:
+def summarize_background_chunk(config: PodcastConfig, topic: str, docs: List) -> str:
     """
-    Generate a structured outline for a podcast episode.
+    Summarize a batch of background documents into a concise context string.
 
-    Takes a topic and background research information, then uses LangChain and GPT-4 
-    to generate a detailed podcast outline with sections and subsections. The outline
-    is structured using Pydantic models for type safety and validation.
+    Args:
+        config (PodcastConfig): Podcast configuration with LLM settings
+        topic (str): The podcast topic
+        docs (List): A list of Wikipedia documents to summarize
+
+    Returns:
+        str: A summary string representing the batch of documents
+    """
+    prompthub_path = "piyushkappa/summarization_chunk"
+    summary_prompt = hub.pull(prompthub_path)
+
+    llm = get_fast_llm(config)
+    summary_chain = summary_prompt | llm
+
+    context_text = "\n\n".join([format_wikipedia_document(d) for d in docs])
+    result = summary_chain.invoke({"topic": topic, "documents": context_text})
+
+    return result if isinstance(result, str) else str(result)
+
+
+def outline_episode(
+    config: PodcastConfig, topic: str, background_info: list, chunk_size: int = 5
+) -> PodcastOutline:
+    """
+    Generate a structured outline for a podcast episode using map–reduce.
+
+    - Map step: Summarize background docs in parallel (chunks).
+    - Reduce step: Combine summaries and generate final outline.
 
     Args:
         topic (str): The main topic for the podcast episode
         background_info (list): List of Wikipedia document objects containing research material
+        chunk_size (int): Number of documents per summarization chunk
 
     Returns:
         PodcastOutline: Structured outline object containing sections and subsections
     """
-    logger.info(f'Generating outline for podcast on: {topic}')
-    
-    prompthub_path = "evandempsey/podcast_outline:6ceaa688"
-    outline_prompt = hub.pull(prompthub_path, )
-    logger.info(f"Got prompt from hub: {prompthub_path}")
+    logger.info(f"Generating outline for podcast on: {topic}")
 
-    outline_llm = get_long_context_llm(config)
-    outline_chain = outline_prompt | outline_llm.with_structured_output(
-        PodcastOutline
+    # === Map step: parallel summarization ===
+    doc_chunks = [
+        background_info[i : i + chunk_size]
+        for i in range(0, len(background_info), chunk_size)
+    ]
+    logger.info(
+        f"Splitting {len(background_info)} documents into {len(doc_chunks)} chunks"
     )
+    with ThreadPoolExecutor(max_workers=8) as executor:  # tune workers
+        summaries = list(
+            executor.map(
+                lambda chunk: summarize_background_chunk(config, topic, chunk),
+                doc_chunks,
+            )
+        )
+    logger.info(f"Got {len(summaries)} summaries from background documents")
 
-    outline = outline_chain.invoke({
-        "episode_structure": config.episode_structure_for_prompt,
-        "topic": topic,
-        "context_documents": "\n\n".join([format_wikipedia_document(d) for d in background_info])
-    })
+    # === Reduce step: final outline generation ===
+    prompthub_path = "evandempsey/podcast_outline:6ceaa688"
+    outline_prompt = hub.pull(prompthub_path)
+    outline_llm = get_long_context_llm(config)
+
+    outline_chain = outline_prompt | outline_llm.with_structured_output(PodcastOutline)
+
+    outline: PodcastOutline = outline_chain.invoke(
+        {
+            "episode_structure": config.episode_structure_for_prompt,
+            "topic": topic,
+            "context_documents": "\n\n".join(summaries),
+        }
+    )
 
     logger.info(outline.as_str)
     return outline

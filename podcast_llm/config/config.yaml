@@ -1,10 +1,10 @@
 # LLM Configuration
-fast_llm_provider: openai   # Options: 'openai', 'google', 'anthropic'
+fast_llm_provider: openai # Options: 'openai', 'google', 'anthropic'
 long_context_llm_provider: openai
 embeddings_model: openai
 
 # Text-to-Speech Configuration
-tts_provider: openai  # Options: 'google', 'elevenlabs', 'google_multispeaker', 'openai'
+tts_provider: openai # Options: 'google', 'elevenlabs', 'google_multispeaker', 'openai'
 
 tts_settings:
   elevenlabs:
@@ -26,17 +26,17 @@ tts_settings:
     effects_profile_id: small-bluetooth-speaker-class-device
   openai:
     voice_mapping:
-      Interviewer: alloy
-      Interviewee: fable
-    model: tts-1
+      Interviewer: shimmer
+      Interviewee: verse
+    model: gpt-4o-mini-tts
 
 # Audio output settings
-output_format: mp3  # Options: 'mp3', 'wav'
+output_format: mp3 # Options: 'mp3', 'wav'
 
 # Directory paths
 temp_audio_dir: ./.temp_audio
 output_dir: ./output
-checkpoint_dir : ./.checkpoints
+checkpoint_dir: ./.checkpoints
 
 # Rate limiting settings
 rate_limits:
@@ -53,12 +53,11 @@ rate_limits:
     max_retries: 10
     base_delay: 2.0
 
-
 # Content settings
 podcast_name: Podcast LLM
 
-# Available variables: podcast_name, topic 
-intro: "Welcome to {podcast_name}. Today we've invited an expert to talk about {topic}." 
+# Available variables: podcast_name, topic
+intro: "Welcome to {podcast_name}. Today we've invited an expert to talk about {topic}."
 outro: "That's all for today. Thank you for listening to {podcast_name}. See you next time when we'll talk about whatever you want."
 
 # Episode structure

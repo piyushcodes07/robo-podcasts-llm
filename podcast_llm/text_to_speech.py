@@ -25,12 +25,12 @@ Typical usage:
     )
 """
 
-
 import logging
 import os
 from io import BytesIO
 from pathlib import Path
 from typing import List
+
 
 import openai
 from elevenlabs import client as elevenlabs_client
@@ -41,12 +41,12 @@ from pydub import AudioSegment
 from podcast_llm.config import PodcastConfig
 from podcast_llm.utils.rate_limits import (
     rate_limit_per_minute,
-    retry_with_exponential_backoff
+    retry_with_exponential_backoff,
 )
 
+import concurrent.futures
 
 logger = logging.getLogger(__name__)
-
 
 
 def clean_text_for_tts(lines: List) -> List:
@@ -69,10 +69,14 @@ def clean_text_for_tts(lines: List) -> List:
     """
     cleaned = []
     for l in lines:
-        cleaned.append({'speaker': l['speaker'], 'text': l['text'].replace("*", "").replace("_", "").replace("—", "")})
+        cleaned.append(
+            {
+                "speaker": l["speaker"],
+                "text": l["text"].replace("*", "").replace("_", "").replace("—", ""),
+            }
+        )
 
     return cleaned
-
 
 
 def merge_audio_files(audio_files: List, output_file: str, audio_format: str) -> None:
@@ -124,30 +128,32 @@ def process_line_google(config: PodcastConfig, text: str, speaker: str):
     Returns:
         bytes: Raw audio data in bytes format containing the synthesized speech
     """
-    client = texttospeech.TextToSpeechClient(client_options={'api_key': config.google_api_key})
-    tts_settings = config.tts_settings['google']
+    client = texttospeech.TextToSpeechClient(
+        client_options={"api_key": config.google_api_key}
+    )
+    tts_settings = config.tts_settings["google"]
 
     interviewer_voice = texttospeech.VoiceSelectionParams(
-        language_code=tts_settings['language_code'],
-        name=tts_settings['voice_mapping']['Interviewer'],
-        ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
+        language_code=tts_settings["language_code"],
+        name=tts_settings["voice_mapping"]["Interviewer"],
+        ssml_gender=texttospeech.SsmlVoiceGender.FEMALE,
     )
 
     interviewee_voice = texttospeech.VoiceSelectionParams(
-        language_code=tts_settings['language_code'],
-        name=tts_settings['voice_mapping']['Interviewee'],
-        ssml_gender=texttospeech.SsmlVoiceGender.MALE
+        language_code=tts_settings["language_code"],
+        name=tts_settings["voice_mapping"]["Interviewee"],
+        ssml_gender=texttospeech.SsmlVoiceGender.MALE,
     )
 
     synthesis_input = texttospeech.SynthesisInput(text=text)
     voice = interviewee_voice
-    if speaker == 'Interviewer':
+    if speaker == "Interviewer":
         voice = interviewer_voice
 
     # Select the type of audio file you want returned
     audio_config = texttospeech.AudioConfig(
         audio_encoding=texttospeech.AudioEncoding.MP3,
-        effects_profile_id=tts_settings['effects_profile_id']
+        effects_profile_id=tts_settings["effects_profile_id"],
     )
 
     # Perform the text-to-speech request on the text input with the selected
@@ -178,12 +184,12 @@ def process_line_elevenlabs(config: PodcastConfig, text: str, speaker: str):
         bytes: Raw audio data in bytes format containing the synthesized speech
     """
     client = elevenlabs_client.ElevenLabs(api_key=config.elevenlabs_api_key)
-    tts_settings = config.tts_settings['elevenlabs']
+    tts_settings = config.tts_settings["elevenlabs"]
 
     audio = client.generate(
         text=text,
-        voice=tts_settings['voice_mapping'][speaker],
-        model=tts_settings['model']
+        voice=tts_settings["voice_mapping"][speaker],
+        model=tts_settings["model"],
     )
 
     # Convert audio iterator to bytes that can be written to disk
@@ -208,19 +214,27 @@ def process_line_openai(config: PodcastConfig, text: str, speaker: str):
     """
     client = openai.OpenAI(api_key=config.openai_api_key)
     tts_settings = config.tts_settings["openai"]
-
-    response = client.audio.speech.create(
+    shimmer_voice = """
+    You are the voice of a charismatic and funny podcast host. When speaking, follow these rules: 🎤 General Style: - Sound natural, conversational, and confident — like a real podcaster. - Use humor and wit subtly, never forced. - Keep energy high and engaging, as if talking to thousands of curious listeners. - Use pauses, emphasis, and variety in delivery to avoid monotony. 🌍 Accent: - [Choose accent here: e.g., American, British, Indian-neutral, Australian, etc.] - Maintain consistency throughout the speech. 😊 Emotional Range: - Vary emotions depending on the context: - Curious when asking rhetorical questions. - Excited and enthusiastic when introducing new topics. - Calm and serious when explaining deep points. - Light and humorous when telling jokes. 📈 Intonation & Tone: - Avoid flat delivery — pitch should rise and fall naturally. - Stress key words for dramatic effect. - Tone should be friendly, witty, and approachable. 🎭 Impressions: - Occasionally (when context allows), slip into fun mini-impressions of celebrities or characters for humor, then return to normal voice. ⚡ Speed of Speech: - Speak at a moderate pace by default. - Speed up slightly when telling a funny story or exciting part. - Slow down for dramatic or impactful moments. 🤫 Whispering: - Occasionally whisper short phrases for dramatic effect or jokes (e.g., “...but don’t tell anyone”). --- Deliver the text as if it’s part of a professional podcast episode introduction or segment, keeping the listener hooked.
+    """
+    verse = """
+Speak in a conversational and authentic tone, like a curious podcast host. Keep the delivery natural, relaxed, and slightly informal, with the pacing and rhythm of a long-form discussion. Ask questions with genuine curiosity, emphasize key words as if truly interested, and use occasional pauses to make it feel unscripted. The voice should sound confident, approachable, and engaging, similar to how Joe Rogan hosts his podcast conversations.
+    """
+    default_instruction = (
+        shimmer_voice if tts_settings["voice_mapping"][speaker] == "shimmer" else verse
+    )
+    with client.audio.speech.with_streaming_response.create(
         model=tts_settings["model"],
+        instructions=default_instruction,
         voice=tts_settings["voice_mapping"][speaker],
         input=text,
-    )
+    ) as response:
+        # Convert audio iterator to bytes that can be written to disk
+        audio_bytes = BytesIO()
+        for chunk in response.iter_bytes():
+            audio_bytes.write(chunk)
 
-    # Convert audio iterator to bytes that can be written to disk
-    audio_bytes = BytesIO()
-    for chunk in response.iter_bytes():
-        audio_bytes.write(chunk)
-
-    return audio_bytes.getvalue()
+        return audio_bytes.getvalue()
 
 
 def combine_consecutive_speaker_chunks(chunks: List[dict]) -> List[dict]:
@@ -244,8 +258,8 @@ def combine_consecutive_speaker_chunks(chunks: List[dict]) -> List[dict]:
     for chunk in chunks:
         if current_chunk is None:
             current_chunk = chunk.copy()
-        elif current_chunk['speaker'] == chunk['speaker']:
-            current_chunk['text'] += ' ' + chunk['text']
+        elif current_chunk["speaker"] == chunk["speaker"]:
+            current_chunk["text"] += " " + chunk["text"]
         else:
             combined_chunks.append(current_chunk)
             current_chunk = chunk.copy()
@@ -277,8 +291,10 @@ def process_lines_google_multispeaker(config: PodcastConfig, chunks: List):
     Returns:
         bytes: Raw audio data in bytes format containing the synthesized speech
     """
-    client = texttospeech_v1beta1.TextToSpeechClient(client_options={'api_key': config.google_api_key})
-    tts_settings = config.tts_settings['google_multispeaker']
+    client = texttospeech_v1beta1.TextToSpeechClient(
+        client_options={"api_key": config.google_api_key}
+    )
+    tts_settings = config.tts_settings["google_multispeaker"]
 
     # Combine consecutive lines from same speaker
     chunks = combine_consecutive_speaker_chunks(chunks)
@@ -289,8 +305,8 @@ def process_lines_google_multispeaker(config: PodcastConfig, chunks: List):
     # Add each line as a conversation turn
     for line in chunks:
         turn = texttospeech_v1beta1.MultiSpeakerMarkup.Turn()
-        turn.text = line['text']
-        turn.speaker = tts_settings['voice_mapping'][line['speaker']]
+        turn.text = line["text"]
+        turn.speaker = tts_settings["voice_mapping"][line["speaker"]]
         multi_speaker_markup.turns.append(turn)
 
     # Configure synthesis input with multi-speaker markup
@@ -300,42 +316,35 @@ def process_lines_google_multispeaker(config: PodcastConfig, chunks: List):
 
     # Configure voice parameters
     voice = texttospeech_v1beta1.VoiceSelectionParams(
-        language_code=tts_settings['language_code'],
-        name='en-US-Studio-MultiSpeaker'
+        language_code=tts_settings["language_code"], name="en-US-Studio-MultiSpeaker"
     )
 
     # Configure audio output
     audio_config = texttospeech_v1beta1.AudioConfig(
         audio_encoding=texttospeech_v1beta1.AudioEncoding.MP3_64_KBPS,
-        effects_profile_id=tts_settings['effects_profile_id']
+        effects_profile_id=tts_settings["effects_profile_id"],
     )
 
     # Generate speech
     response = client.synthesize_speech(
-        input=synthesis_input,
-        voice=voice,
-        audio_config=audio_config
+        input=synthesis_input, voice=voice, audio_config=audio_config
     )
 
     return response.audio_content
 
 
 def convert_to_speech(
-        config: PodcastConfig,
-        conversation: str,
-        output_file: str,
-        temp_audio_dir: str,
-        audio_format: str) -> None:
+    config: PodcastConfig,
+    conversation: list[dict],
+    output_file: str,
+    temp_audio_dir: str,
+    audio_format: str,
+) -> None:
     """
-    Convert a conversation script to speech audio using Google Text-to-Speech API.
-
-    Takes a conversation script consisting of speaker/text pairs and generates audio files
-    for each line using Google's TTS service. The individual audio files are then merged
-    into a single output file. Uses different voices for different speakers to create a
-    natural conversational feel.
+    Convert a conversation script to speech audio using OpenAI Text-to-Speech API.
 
     Args:
-        conversation (str): List of dictionaries containing conversation lines with structure:
+        conversation (list[dict]): Conversation lines with structure:
             {
                 'speaker': str,  # Speaker identifier ('Interviewer' or 'Interviewee')
                 'text': str      # Line content to convert to speech
@@ -343,67 +352,38 @@ def convert_to_speech(
         output_file (str): Path where the final merged audio file should be saved
         temp_audio_dir (str): Directory path for temporary audio file storage
         audio_format (str): Format of the audio files (e.g. 'mp3')
-
-    Raises:
-        Exception: If any errors occur during TTS conversion or file operations
     """
-    tts_audio_formats = {
-        'elevenlabs': 'mp3',
-        'google': 'mp3',
-        'google_multispeaker': 'mp3',
-        'openai':'mp3'
-    }
-
     try:
         logger.info(f"Generating audio files for {len(conversation)} lines...")
         audio_files = []
-        counter = 0
+        tts_audio_format = "mp3"
 
-        if config.tts_provider == 'google_multispeaker':
-            # We will not use a line by line strategy.
-            # Instead we will process in chunks of 6.
-            # Process conversation in chunks of 6 lines
-            for chunk_start in range(0, len(conversation), 4):
-                chunk = conversation[chunk_start:chunk_start + 4]
-                logger.info(f"Processing chunk {counter} with {len(chunk)} lines...")
+        def process_line(index, line):
+            logger.info(f"Generating audio for line {index}...")
+            audio = process_line_openai(config, line["text"], line["speaker"])
 
-                audio = process_lines_google_multispeaker(config, chunk)
+            file_name = os.path.join(temp_audio_dir, f"{index:03d}.{tts_audio_format}")
+            with open(file_name, "wb") as out:
+                out.write(audio)
+            logger.info(f"Saved audio chunk {index} -> {file_name}")
+            return file_name
 
-                file_name = os.path.join(temp_audio_dir, f"{counter:03d}.{tts_audio_formats[config.tts_provider]}")
-                with open(file_name, "wb") as out:
-                    out.write(audio)
-                audio_files.append(file_name)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=40) as executor:
+            futures = [
+                executor.submit(process_line, idx, line)
+                for idx, line in enumerate(conversation)
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                audio_files.append(future.result())
 
-                counter += 1
-        else:
-            for line in conversation:
-                logger.info(f"Generating audio for line {counter}...")
-
-                if config.tts_provider == 'google':
-                    audio = process_line_google(config, line['text'], line['speaker'])
-                elif config.tts_provider == 'elevenlabs':
-                    audio = process_line_elevenlabs(config, line['text'], line['speaker'])
-                elif config.tts_provider == "openai":
-                    audio = process_line_openai(
-                        config, line["text"], line["speaker"]
-                    )
-
-                logger.info(f"Saving audio chunk {counter}...")
-                file_name = os.path.join(temp_audio_dir, f"{counter:03d}.{tts_audio_formats[config.tts_provider]}")
-                with open(file_name, "wb") as out:
-                    out.write(audio)
-                audio_files.append(file_name)
-
-                counter += 1
-
-        # Merge all audio files and save the result
+        audio_files.sort()
         merge_audio_files(audio_files, output_file, audio_format)
 
-        # Clean up individual audio files
         for file in audio_files:
             os.remove(file)
 
     except Exception as e:
+        logger.error(f"Error during TTS conversion: {e}")
         raise
 
 
@@ -433,6 +413,8 @@ def generate_audio(config: PodcastConfig, final_script: list, output_file: str) 
 
     temp_audio_dir = Path(config.temp_audio_dir)
     temp_audio_dir.mkdir(parents=True, exist_ok=True)
-    convert_to_speech(config, cleaned_script, output_file, config.temp_audio_dir, config.output_format)
+    convert_to_speech(
+        config, cleaned_script, output_file, config.temp_audio_dir, config.output_format
+    )
 
     return output_file

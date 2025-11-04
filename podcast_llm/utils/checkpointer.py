@@ -26,6 +26,8 @@ import logging
 from typing import Any, Callable
 from pathlib import Path
 import pickle
+import inspect
+import asyncio
 
 
 logger = logging.getLogger(__name__)
@@ -85,13 +87,13 @@ class Checkpointer:
         )
         
         # Will save result to disk and return it
-        result = checkpointer.checkpoint(
+        result = await checkpointer.checkpoint(
             expensive_computation(), 
             stage_name='stage1'
         )
         
         # On subsequent runs, will load from disk instead of recomputing
-        result = checkpointer.checkpoint(
+        result = await checkpointer.checkpoint(
             expensive_computation(),
             stage_name='stage1'
         )
@@ -112,8 +114,10 @@ class Checkpointer:
         if enabled:
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    def checkpoint(self, fn: Callable, args: list, stage_name: str = 'result') -> Any:
+    async def checkpoint(self, fn: Callable, args: list, stage_name: str = 'result') -> Any:
         if not self.enabled:
+            if inspect.iscoroutinefunction(fn):
+                return await fn(*args)
             return fn(*args)
 
         # Generate checkpoint filename using base key
@@ -126,7 +130,10 @@ class Checkpointer:
                 return pickle.load(f)
         
         # If it doesn't exist, call the function
-        result = fn(*args)
+        if inspect.iscoroutinefunction(fn):
+            result = await fn(*args)
+        else:
+            result = fn(*args)
 
         # Save checkpoint
         logger.info(f'Saving checkpoint to {checkpoint_file}')

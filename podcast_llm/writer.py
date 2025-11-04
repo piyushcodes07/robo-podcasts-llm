@@ -25,15 +25,13 @@ Example:
     print(script.as_str)
 """
 
-
 import logging
 from typing import List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
-from podcast_llm.outline import (
-    format_wikipedia_document
-)
+from podcast_llm.outline import format_wikipedia_document
 import logging
 from langchain import hub
 from langchain_openai import ChatOpenAI
@@ -50,9 +48,20 @@ from podcast_llm.models import (
     PodcastSubsection,
     Script,
     Question,
-    Answer
+    Answer,
 )
 from podcast_llm.utils.rate_limits import retry_with_exponential_backoff
+
+import asyncio
+from anyio import to_thread
+
+
+async def ask_question_async(*args, **kwargs):
+    return await to_thread.run_sync(ask_question, *args, **kwargs)
+
+
+async def answer_question_async(*args, **kwargs):
+    return await to_thread.run_sync(answer_question, *args, **kwargs)
 
 
 logger = logging.getLogger(__name__)
@@ -87,7 +96,7 @@ def format_vector_results(docs: List[Document]):
     """
     Format retrieved vector store documents into a readable string.
 
-    Takes a list of document objects returned from a vector store retrieval and 
+    Takes a list of document objects returned from a vector store retrieval and
     formats their content into a single string, with documents separated by newlines.
     This is used to format relevant background information for the LLM to reference
     when generating responses.
@@ -103,13 +112,15 @@ def format_vector_results(docs: List[Document]):
 
 
 @retry_with_exponential_backoff(max_retries=10, base_delay=2.0)
-def ask_question(topic: str, 
-                 outline: PodcastOutline, 
-                 section: PodcastSection, 
-                 subsection: PodcastSubsection, 
-                 background_info: list, 
-                 draft_discussion: list, 
-                 interviewer_chain: LLMChain) -> Question:
+def ask_question(
+    topic: str,
+    outline: PodcastOutline,
+    section: PodcastSection,
+    subsection: PodcastSubsection,
+    background_info: list,
+    draft_discussion: list,
+    interviewer_chain: LLMChain,
+) -> Question:
     """
     Generate the next interview question based on the conversation context.
 
@@ -130,35 +141,41 @@ def ask_question(topic: str,
     Returns:
         Question: A structured Question object containing the generated question text
     """
-    return interviewer_chain.invoke({
-        'topic': topic,
-        'outline': outline.as_str,
-        'section': section.title,
-        'subsection': subsection.title,
-        'background_info': "\n\n".join([format_wikipedia_document(d) for d in background_info]),
-        'conversation_history': format_conversation_history(draft_discussion)
-    })
+    return interviewer_chain.invoke(
+        {
+            "topic": topic,
+            "outline": outline.as_str,
+            "section": section.title,
+            "subsection": subsection.title,
+            "background_info": "\n\n".join(
+                [format_wikipedia_document(d) for d in background_info]
+            ),
+            "conversation_history": format_conversation_history(draft_discussion),
+        }
+    )
 
 
 @retry_with_exponential_backoff(max_retries=10, base_delay=2.0)
-def answer_question(topic: str,
-                    outline: PodcastOutline,
-                    section: PodcastSection,
-                    subsection: PodcastSubsection,
-                    draft_discussion: list,
-                    retriever: VectorStoreRetriever,
-                    interviewee_chain: LLMChain) -> Answer:
+def answer_question(
+    topic: str,
+    outline: PodcastOutline,
+    section: PodcastSection,
+    subsection: PodcastSubsection,
+    draft_discussion: list,
+    retriever: VectorStoreRetriever,
+    interviewee_chain: LLMChain,
+) -> Answer:
     """
     Generate an answer to the current interview question.
 
-    Uses LangChain and an LLM to generate a natural, informative response based on the 
+    Uses LangChain and an LLM to generate a natural, informative response based on the
     retrieved background information and conversation context. The response stays focused
     on the current subsection topic while maintaining a conversational tone.
 
     Args:
         topic (str): The main podcast topic
         outline (PodcastOutline): The structured outline for the episode
-        section (PodcastSection): The current section being discussed 
+        section (PodcastSection): The current section being discussed
         subsection (PodcastSubsection): The current subsection being discussed
         draft_discussion (list): List of previous Question and Answer objects
         retriever (VectorStoreRetriever): Retriever for getting relevant background info
@@ -168,102 +185,117 @@ def answer_question(topic: str,
         Answer: A structured Answer object containing the generated response text
     """
     background_information = format_vector_results(
-        retriever.invoke(draft_discussion[-1].question))
-
-    return interviewee_chain.invoke({
-        'topic': topic,
-        'outline': outline.as_str,
-        'section': section.title,
-        'subsection': subsection.title,
-        'word_count': 100,
-        'background_information': background_information,
-        'conversation_history': format_conversation_history(draft_discussion),
-        'question': draft_discussion[-1].as_str
-    })
-
-
-def discuss(config: PodcastConfig,
-            topic: str, 
-            outline: PodcastOutline, 
-            background_info: List[Document], 
-            vector_store: InMemoryVectorStore, 
-            qa_rounds: int) -> list:
-    """
-    Simulate a podcast discussion through a series of questions and answers.
-
-    Coordinates the generation of a natural-sounding podcast discussion by alternating
-    between generating interview questions and detailed responses. Uses separate LLM chains
-    for the interviewer and interviewee roles, with rate limiting to manage API usage.
-    The discussion follows the podcast outline structure, exploring each subsection
-    through multiple rounds of Q&A.
-
-    Args:
-        topic (str): The main podcast topic
-        outline (PodcastOutline): Structured outline containing sections and subsections
-        background_info (list): List of Wikipedia document objects with research material
-        vector_store (InMemoryVectorStore): Vector store containing indexed research content
-        qa_rounds (int): Number of question-answer rounds per subsection
-
-    Returns:
-        list: List of alternating Question and Answer objects forming the discussion
-    """
-    logger.info(f"Simulating discussion on: {topic}")
-
-    interviewer_prompthub_path = "evandempsey/podcast_interviewer_role:bc03af97"
-    interviewer_prompt = hub.pull(interviewer_prompthub_path)
-    logger.info(f"Got prompt from hub: {interviewer_prompthub_path}")
-
-    interviewee_prompthub_path = "evandempsey/podcast_interviewee_role:0832c140"
-    interviewee_prompt = hub.pull(interviewee_prompthub_path)
-    logger.info(f"Got prompt from hub: {interviewee_prompthub_path}")
-
-    rate_limiter = InMemoryRateLimiter(
-        requests_per_second=0.2,
-        check_every_n_seconds=0.1,
-        max_bucket_size=10
+        retriever.invoke(draft_discussion[-1].question)
     )
 
+    return interviewee_chain.invoke(
+        {
+            "topic": topic,
+            "outline": outline.as_str,
+            "section": section.title,
+            "subsection": subsection.title,
+            "word_count": 100,
+            "background_information": background_information,
+            "conversation_history": format_conversation_history(draft_discussion),
+            "question": draft_discussion[-1].as_str,
+        }
+    )
+
+
+interviewer_prompt = hub.pull("evandempsey/podcast_interviewer_role:bc03af97")
+interviewee_prompt = hub.pull("evandempsey/podcast_interviewee_role:0832c140")
+
+
+async def discuss(
+    config: PodcastConfig,
+    topic: str,
+    outline: PodcastOutline,
+    background_info: List[Document],
+    vector_store: InMemoryVectorStore,
+    qa_rounds: int,
+) -> list:
+    """
+    Parallelized podcast discussion generator.
+    - Preserves Q→A order inside each subsection.
+    - Runs all subsections across all sections concurrently.
+    """
+
+    logger.info(f"Simulating discussion on: {topic}")
+
+    # load prompts concurrently if hub.pull is async
+    # interviewer_prompt, interviewee_prompt = await asyncio.gather(
+    #     hub.pull("evandempsey/podcast_interviewer_role:bc03af97"),
+    #     hub.pull("evandempsey/podcast_interviewee_role:0832c140"),
+    # )
+
+    # rate limiter + LLMs
+    rate_limiter = InMemoryRateLimiter(
+        requests_per_second=50, check_every_n_seconds=0.1, max_bucket_size=150
+    )
     interviewer_llm = get_long_context_llm(config, rate_limiter)
     interviewee_llm = get_long_context_llm(config, rate_limiter)
-    interviewer_chain = interviewer_prompt | interviewer_llm.with_structured_output(Question)
-    interviewee_chain = interviewee_prompt | interviewee_llm.with_structured_output(Answer)
+
+    interviewer_chain = interviewer_prompt | interviewer_llm.with_structured_output(
+        Question
+    )
+    interviewee_chain = interviewee_prompt | interviewee_llm.with_structured_output(
+        Answer
+    )
 
     retriever = vector_store.as_retriever(k=4)
 
-    draft_discussion = []
+    async def process_subsection(section, subsection):
+        """Run all Q&A rounds for a single subsection sequentially."""
+        draft_discussion = []
+        for round_idx in range(qa_rounds):
+            q = await ask_question_async(
+                topic,
+                outline,
+                section,
+                subsection,
+                background_info,
+                draft_discussion,
+                interviewer_chain,
+            )
+            a = await answer_question_async(
+                topic,
+                outline,
+                section,
+                subsection,
+                draft_discussion + [q],
+                retriever,
+                interviewee_chain,
+            )
+            draft_discussion.extend([q, a])
+        return (section.title, subsection.title, draft_discussion)
 
+    # run ALL subsections (across all sections) concurrently
+    tasks = [
+        process_subsection(section, subsection)
+        for section in outline.sections
+        for subsection in section.subsections
+    ]
+    results = await asyncio.gather(*tasks)
+
+    # regroup results by section → subsection
+    final_discussion = []
     for section in outline.sections:
         for subsection in section.subsections:
-            logger.info(f"Discussing section '{section.title}' subsection '{subsection.title}'")
-            for _ in range(qa_rounds):
-                draft_discussion.append(ask_question(
-                    topic, 
-                    outline, 
-                    section,
-                    subsection,
-                    background_info, 
-                    draft_discussion, 
-                    interviewer_chain
-                ))
-                draft_discussion.append(answer_question(
-                    topic,
-                    outline,
-                    section,
-                    subsection,
-                    draft_discussion,
-                    retriever,
-                    interviewee_chain
-                ))
-
-    return draft_discussion
+            # find the matching result
+            for sec, sub, draft in results:
+                if sec == section.title and sub == subsection.title:
+                    final_discussion.extend(draft)
+    return final_discussion
 
 
-def write_draft_script(config: PodcastConfig,
-                       topic: str, 
-                       outline: PodcastOutline, 
-                       background_info: List[Document], 
-                       deep_info: List[Document], 
-                       qa_rounds: int):
+async def write_draft_script(
+    config: PodcastConfig,
+    topic: str,
+    outline: PodcastOutline,
+    background_info: List[Document],
+    deep_info: List[Document],
+    qa_rounds: int,
+):
     """
     Write a complete draft podcast script through simulated Q&A discussion.
 
@@ -271,7 +303,7 @@ def write_draft_script(config: PodcastConfig,
     1. Creating a vector store from background research and deep dive articles
     2. Splitting content into manageable chunks for retrieval
     3. Simulating an interview-style discussion with alternating questions and answers
-    
+
     Args:
         topic (str): The main topic of the podcast episode
         outline (PodcastOutline): Structured outline containing sections and subsections
@@ -293,14 +325,14 @@ def write_draft_script(config: PodcastConfig,
         chunk_size=1000,
         chunk_overlap=200,
         length_function=len,
-        separators=["\n\n", "\n", " ", ""]
+        separators=["\n\n", "\n", " ", ""],
     )
 
     # Process background Wikipedia articles
     background_texts = []
     for doc in background_info:
         background_texts.append(doc.page_content)
-    
+
     # Process deep research articles
     deep_texts = []
     for article in deep_info:
@@ -313,11 +345,12 @@ def write_draft_script(config: PodcastConfig,
     # Create vector store
     embeddings = get_embeddings_model(config)
     vector_store = InMemoryVectorStore.from_documents(
-        documents=chunks,
-        embedding=embeddings
+        documents=chunks, embedding=embeddings
     )
 
-    draft_script = discuss(config, topic, outline, background_info, vector_store, qa_rounds)
+    draft_script = await discuss(
+        config, topic, outline, background_info, vector_store, qa_rounds
+    )
     return draft_script
 
 
@@ -326,7 +359,7 @@ def rewrite_script_section(section: list, rewriter_chain) -> list:
     """
     Rewrite a section of the podcast script to improve flow and naturalness.
 
-    Takes a section of the draft script (a sequence of Question/Answer exchanges) and uses 
+    Takes a section of the draft script (a sequence of Question/Answer exchanges) and uses
     the rewriter chain to improve the conversational flow, word choice, and overall quality
     while maintaining the core content and structure.
 
@@ -341,67 +374,72 @@ def rewrite_script_section(section: list, rewriter_chain) -> list:
                 'text': str      # Rewritten line content
             }
     """
-    rewritten = rewriter_chain.invoke({
-        "script": format_conversation_history(section)
-    })
+    rewritten = rewriter_chain.invoke({"script": format_conversation_history(section)})
 
-    return [{'speaker': line.speaker, 'text': line.text} for line in rewritten.lines]
+    return [{"speaker": line.speaker, "text": line.text} for line in rewritten.lines]
 
 
-def write_final_script(config: PodcastConfig, topic: str, draft_script: list, batch_size: int = 4) -> list:
-    """
-    Rewrite a draft podcast script to improve flow, naturalness and quality.
+rewriter_prompthub_path = "evandempsey/podcast_rewriter:181421e2"
+rewriter_prompt = hub.pull(rewriter_prompthub_path)
 
-    Takes a draft script consisting of Question/Answer exchanges and processes it in batches,
-    using an LLM to improve the conversational flow, word choice, and overall quality while 
-    maintaining the core content and structure. The script is processed in batches to manage
-    context length and rate limits.
 
-    Args:
-        draft_script (list): List of Question/Answer objects representing the full draft script
-        batch_size (int, optional): Number of Q/A exchanges to process in each batch. Defaults to 4.
-
-    Returns:
-        list: List of dictionaries containing the rewritten script lines with structure:
-            {
-                'speaker': str,  # Speaker identifier ('Interviewer' or 'Interviewee') 
-                'text': str      # Rewritten line content
-            }
-    """
-    logger.info("Processing draft script in batches")
-
-    rewriter_prompthub_path = "evandempsey/podcast_rewriter:181421e2"
-    rewriter_prompt = hub.pull(rewriter_prompthub_path)
-    logger.info(f"Got prompt from hub: {rewriter_prompthub_path}")
+def write_final_script(
+    config: PodcastConfig,
+    topic: str,
+    draft_script: list,
+    batch_size: int = 20,
+    max_workers: int = 20,
+) -> list:
+    logger.info("Processing draft script in parallel batches")
 
     rate_limiter = InMemoryRateLimiter(
-        requests_per_second=0.2,
-        check_every_n_seconds=0.1,
-        max_bucket_size=10
+        requests_per_second=90, check_every_n_seconds=0.2, max_bucket_size=100
     )
 
     long_context_llm = get_long_context_llm(config, rate_limiter)
-    long_context_llm = get_long_context_llm(config, rate_limiter)
     rewriter_chain = rewriter_prompt | long_context_llm.with_structured_output(Script)
-    
+
+    batches = [
+        draft_script[i : i + batch_size]
+        for i in range(0, len(draft_script), batch_size)
+    ]
+
     final_script = []
-    
-    # Process script in batches of bath_size
-    for i in range(0, len(draft_script), batch_size):
-        logger.info(f"Rewriting lines {i+1} to {i+batch_size} of {len(draft_script)}")
-        batch = draft_script[i:i + batch_size]
-        final_script.extend(rewrite_script_section(batch, rewriter_chain))
 
-    # Add intro line
-    final_script.insert(0, {
-        'speaker': 'Interviewer',
-        'text': config.intro.format(topic=topic, podcast_name=config.podcast_name)
-    })
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(rewrite_script_section, batch, rewriter_chain): idx
+            for idx, batch in enumerate(batches)
+        }
 
-    # Add outro line
-    final_script.append({
-        'speaker': 'Interviewer',
-        'text': config.outro.format(topic=topic, podcast_name=config.podcast_name)
-    })
-        
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                result = future.result()
+                final_script.extend(result)
+                logger.info(f"Finished rewriting batch {idx + 1}/{len(batches)}")
+            except Exception as e:
+                logger.error(f"Batch {idx + 1} failed: {e}")
+
+    # Assemble intro/outro efficiently
+    final_script = (
+        [
+            {
+                "speaker": "Interviewer",
+                "text": config.intro.format(
+                    topic=topic, podcast_name=config.podcast_name
+                ),
+            }
+        ]
+        + final_script
+        + [
+            {
+                "speaker": "Interviewer",
+                "text": config.outro.format(
+                    topic=topic, podcast_name=config.podcast_name
+                ),
+            }
+        ]
+    )
+
     return final_script

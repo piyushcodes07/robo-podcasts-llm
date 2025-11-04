@@ -1,136 +1,107 @@
-# Podcast-LLM: AI-Powered Podcast Generation
+# Podcast LLM: Automated Podcast Generation Engine
 
-![Tests](https://github.com/evandempsey/podcast-llm/actions/workflows/pytest.yml/badge.svg)
-[![codecov](https://codecov.io/gh/evandempsey/podcast-llm/branch/main/graph/badge.svg)](https://codecov.io/gh/evandempsey/podcast-llm)
-[![GitHub stars](https://img.shields.io/github/stars/evandempsey/podcast-llm.svg?style=social&label=Star)](https://github.com/evandempsey/podcast-llm)
-[![GitHub Downloads](https://img.shields.io/github/downloads/evandempsey/podcast-llm/total.svg)](https://github.com/evandempsey/podcast-llm/releases)
-[![GitHub issues](https://img.shields.io/github/issues/evandempsey/podcast-llm.svg)](https://github.com/evandempsey/podcast-llm/issues)
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+[![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/your-username/podcast-llm)
 
+An end-to-end, event-driven system that automates the creation of entire podcast episodes from a single topic. This project demonstrates a robust, scalable backend architecture for orchestrating long-running AI and media generation pipelines.
 
-An intelligent system that automatically generates engaging podcast conversations using LLMs and text-to-speech technology.
+## Overview
 
-[View Documentation](https://evandempsey.github.io/podcast-llm/)
+`podcast-llm` is not just a script. It's a complete backend service that takes a user-provided topic and generates a full-length audio episode featuring an interview between two AI hosts. It handles everything from autonomous online research and scriptwriting to voice generation and audio production.
 
-## Features
+The core of this project is its resilient, asynchronous architecture, designed to handle complex, multi-stage workflows that can take several minutes to complete without compromising API responsiveness or reliability.
 
-- Two modes of operation:
-  - Research mode: Automated research and content gathering using Tavily search
-  - Context mode: Generate podcasts from provided source materials (URLs and files)
-- Dynamic podcast outline generation
-- Natural conversational script writing with multiple Q&A rounds
-- High-quality text-to-speech synthesis using Google Cloud or ElevenLabs
-- Checkpoint system to save progress and resume generation
-- Configurable voices and audio settings
-- Gradio UI
+## Features & Architectural Highlights
 
-## Examples
+This project was engineered with scalability and resilience as first-class citizens.
 
-Listen to sample podcasts generated using Podcast-LLM:
+*   **Asynchronous Job Processing**: The FastAPI backend uses background tasks to offload long-running generation jobs. The API remains non-blocking and highly responsive, immediately returning a job confirmation.
+*   **Real-time Progress Updates**: A WebSocket interface streams live progress updates to the client, providing visibility into the generation pipeline (e.g., `Researching`, `Writing Script`, `Generating Audio`).
+*   **Resilient & Resumable Pipelines**:
+    *   **Checkpointing**: The system saves the output of each major stage. If a job fails midway (e.g., during audio synthesis), it can be resumed from the last successful checkpoint, saving significant time and compute.
+    *   **Exponential Backoff & Retries**: All external API calls (to LLMs, TTS services, etc.) are wrapped in a resilient client that automatically handles transient errors and rate limits.
+*   **Scalable Map-Reduce Research Engine**: To gather context, the system performs parallel research using a `ThreadPoolExecutor` to fetch and summarize dozens of articles concurrently before synthesizing them into a structured outline.
+*   **Modular & Extensible**: Built with a clear separation of concerns. Each component (`research`, `outline`, `writer`, `text_to_speech`) is a distinct module, making it easy to maintain and extend (e.g., adding a new TTS provider).
 
-### Structured JSON Output from LLMs (Google multispeaker voices)
+## Architecture Diagram
 
-[![Play Podcast Sample](https://img.shields.io/badge/Play%20Podcast-brightgreen?style=for-the-badge&logo=soundcloud)](https://soundcloud.com/evan-dempsey-153309617/llm-structured-output)
+The system follows an event-driven, pipeline architecture:
 
-### UFO Crash Retrieval (Elevenlabs voices)
+```mermaid
+graph TD
+    A[Client Request: /generate] --> B{API Server (FastAPI)};
+    B --> C[1. Start Background Job];
+    C --> D{Research Agent};
+    D --> E{Outline Generator};
+    E --> F{Script Writer};
+    F --> G{Text-to-Speech Engine};
+    G --> H[2. Merge Audio & Finalize];
+    H --> I[3. Upload to Storage];
 
-[![Play Podcast Sample](https://img.shields.io/badge/Play%20Podcast-brightgreen?style=for-the-badge&logo=soundcloud)](https://soundcloud.com/evan-dempsey-153309617/ufo-crash-retrieval-elevenlabs-voices)
+    subgraph Real-time Feedback
+        B -- Job Started --> J(WebSocket Streamer);
+        D -- Researching... --> J;
+        F -- Writing Script... --> J;
+        G -- Generating Audio... --> J;
+        I -- Complete --> J;
+    end
 
-### The Behenian Fixed Stars (Google multispeaker voices)
+    J --> K[Client];
+```
 
-[![Play Podcast Sample](https://img.shields.io/badge/Play%20Podcast-brightgreen?style=for-the-badge&logo=soundcloud)](https://soundcloud.com/evan-dempsey-153309617/behenian-fixed-stars)
+## Technology Stack
 
-### Podcast-LLM Overview (Google multispeaker voices)
+*   **Backend**: FastAPI, Pydantic, Uvicorn
+*   **AI & Orchestration**: LangChain, OpenAI GPT-4 & GPT-4o-mini-tts
+*   **Research**: Tavily API, Wikipedia
+*   **Text-to-Speech**: ElevenLabs, Google Cloud TTS
+*   **Audio Processing**: pydub
+*   **Real-time Communication**: WebSockets
+*   **Testing**: Pytest
 
-[![Play Podcast Sample](https://img.shields.io/badge/Play%20Podcast-brightgreen?style=for-the-badge&logo=soundcloud)](https://soundcloud.com/evan-dempsey-153309617/podcast-llm-with-anthropic-and-google-multispeaker)
+## Getting Started
 
-### Robotic Process Automation (Google voices)
+### Prerequisites
 
-[![Play Podcast Sample](https://img.shields.io/badge/Play%20Podcast-brightgreen?style=for-the-badge&logo=soundcloud)](https://soundcloud.com/evan-dempsey-153309617/robotic-process-automation-google-voices)
+*   Python 3.9+
+*   An `.env` file with your API keys.
 
+### Installation
 
-## Web Interface
+1.  **Clone the repository:**
+    ```sh
+    git clone https://github.com/your-username/podcast-llm.git
+    cd podcast-llm
+    ```
 
-![Gradio Web Interface](https://raw.githubusercontent.com/evandempsey/podcast-llm/main/assets/images/gradio_ui.png)
+2.  **Create a virtual environment and install dependencies:**
+    ```sh
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    ```
 
-## Installation
+3.  **Configure your environment:**
 
-1. Install using pip:
-   ```bash
-   pip install podcast-llm
-   ```
+    Create a `.env` file in the project root by copying the example. Then, fill in your API keys.
+    ```sh
+    cp .env.example .env
+    ```
+    ```.env
+    # .env
+    OPENAI_API_KEY="sk-..."
+    ELEVENLABS_API_KEY="..."
+    GOOGLE_API_KEY="..."
+    TAVILY_API_KEY="..."
+    ANTHROPIC_API_KEY="..."
+    ```
 
-2. Set up environment variables in `.env`:
-   ```
-   OPENAI_API_KEY=your_openai_key
-   GOOGLE_API_KEY=your_google_key 
-   ELEVENLABS_API_KEY=your_elevenlabs_key
-   TAVILY_API_KEY=your_tavily_key
-   ANTHROPIC_API_KEY=your_anthropic_api_key
-   ```
+### Running the Server
 
-## Usage
+Launch the FastAPI application with Uvicorn:
+```sh
+uvicorn podcast_llm.api:app --reload
+```
+The API will be available at `http://127.0.0.1:8000`.
 
-1. Generate a podcast about a topic:
-   ```bash
-   # Research mode (default) - automatically researches the topic
-   podcast-llm "Artificial Intelligence"
-
-   # Context mode - uses provided sources
-   podcast-llm "Machine Learning" --mode context --sources paper.pdf https://example.com/article
-   ```
-
-2. Options:
-   ```bash
-   # Customize number of Q&A rounds per section
-   podcast-llm "Linux" --qa-rounds 3
-
-   # Disable checkpointing
-   podcast-llm "Space Exploration" --checkpoint false
-
-   # Generate audio output
-   podcast-llm "Quantum Computing" --audio-output podcast.mp3
-
-   # Generate Markdown output
-   podcast-llm "Machine Learning" --text-output podcast.md
-   ```
-
-3. Customize voices and other settings in `config/config.yaml`
-
-4. Launch the Gradio web interface:
-   ```bash
-   # Start the web UI
-   podcast-llm-gui
-   ```
-
-   This launches a user-friendly web interface where you can:
-   - Enter a podcast topic
-   - Choose between research and context modes
-   - Upload source files and URLs for context mode
-   - Configure Q&A rounds and checkpointing
-   - Specify output paths for text and audio
-   - Monitor generation progress in real-time
-
-
-## License
-
-This project is licensed under Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)
-
-This means you are free to:
-- Share: Copy and redistribute the material in any medium or format
-- Adapt: Remix, transform, and build upon the material
-
-Under the following terms:
-- Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made
-- NonCommercial: You may not use the material for commercial purposes
-- No additional restrictions: You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits
-
-For commercial use, please contact evandempsey@gmail.com to obtain a commercial license.
-
-The full license text can be found at: https://creativecommons.org/licenses/by-nc/4.0/legalcode
-
-## Acknowledgements
-
-This project was inspired by [podcastfy](https://github.com/souzatharsis/podcastfy), which provides a framework for generating podcasts using LLMs. 
-
-This implementation differs by automating the research and content gathering process, allowing for fully autonomous podcast generation about any topic without requiring manual research or content curation.

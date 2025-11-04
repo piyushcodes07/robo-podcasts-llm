@@ -23,7 +23,6 @@ used for further processing. Failed extractions are logged but do not halt
 processing of remaining sources.
 """
 
-
 import logging
 from typing import List
 from collections import OrderedDict
@@ -54,27 +53,53 @@ def extract_content_from_sources(sources: List) -> List:
         List: List of extracted content as LangChain documents
 
     Example:
-        >>> sources = ['document.docx', 'article.pdf'] 
+        >>> sources = ['document.docx', 'article.pdf']
         >>> content = extract_content_from_sources(sources)
         >>> print(len(content))
         2
     """
     extracted_content = []
-    
-    source_type_mapping = OrderedDict([
-        ('youtube', (lambda s: 'youtube.com' in s or 'youtu.be' in s, YouTubeSourceDocument)),
-        ('web', (lambda s: s.startswith(('http://', 'https://', 'ftp://')), WebSourceDocument)),
-        ('pdf', (lambda s: s.lower().endswith('.pdf'), PDFSourceDocument)),
-        ('word', (lambda s: s.lower().endswith('.docx'), WordSourceDocument)),
-        ('audio', (lambda s: s.lower().endswith(('.mp3', '.wav', '.m4a', '.ogg')), AudioSourceDocument)),
-        ('markdown', (lambda s: s.lower().endswith(('.md', '.markdown')), MarkdownSourceDocument)),
-        ('text', (lambda s: s.lower().endswith('.txt'), TextSourceDocument))
-    ])
-    
+
+    source_type_mapping = OrderedDict(
+        [
+            (
+                "youtube",
+                (
+                    lambda s: "youtube.com" in s or "youtu.be" in s,
+                    YouTubeSourceDocument,
+                ),
+            ),
+            (
+                "web",
+                (
+                    lambda s: s.startswith(("http://", "https://", "ftp://")),
+                    WebSourceDocument,
+                ),
+            ),
+            ("pdf", (lambda s: s.lower().endswith(".pdf"), PDFSourceDocument)),
+            ("word", (lambda s: s.lower().endswith(".docx"), WordSourceDocument)),
+            (
+                "audio",
+                (
+                    lambda s: s.lower().endswith((".mp3", ".wav", ".m4a", ".ogg")),
+                    AudioSourceDocument,
+                ),
+            ),
+            (
+                "markdown",
+                (
+                    lambda s: s.lower().endswith((".md", ".markdown")),
+                    MarkdownSourceDocument,
+                ),
+            ),
+            ("text", (lambda s: s.lower().endswith(".txt"), TextSourceDocument)),
+        ]
+    )
+
     for source in sources:
         try:
             logger.info(f"Extracting from source: {source}")
-            
+
             for check_source, source_class in source_type_mapping.values():
                 if check_source(source):
                     source_doc = source_class(source=source)
@@ -84,5 +109,5 @@ def extract_content_from_sources(sources: List) -> List:
 
         except Exception as e:
             logger.error(f"Failed to extract from source: {source}. Error: {str(e)}")
-    
+
     return extracted_content
