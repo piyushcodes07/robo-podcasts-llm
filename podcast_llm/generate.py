@@ -181,13 +181,14 @@ async def generate(
             )
         audio_path = generate_audio(config, final_script, audio_output)
         print("audio path : ", audio_path)
+        public_url = upload_mp3(user_id=main_user_id, local_file_path=audio_path)
+
+        print("public url-->", public_url)
+
         if user_id:
             await streamer.send(
                 user_id, "Audio Generation", 100, "Final audio generated."
             )
-        public_url = upload_mp3(user_id=main_user_id, local_file_path=audio_path)
-
-        print(public_url)
         if user_id:
             streamer.disconnect(user_id)
 
