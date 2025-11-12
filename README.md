@@ -30,7 +30,7 @@ The system follows an event-driven, pipeline architecture:
 
 ```mermaid
 graph TD
-    A[Client Request: /generate] --> B{API Server (FastAPI)}
+    A[Client Request: generate] --> B{API Server - FastAPI}
     B --> C[1. Start Background Job]
     C --> D[Research Agent]
     D --> E[Outline Generator]
@@ -40,7 +40,7 @@ graph TD
     H --> I[3. Upload to Storage]
 
     subgraph Real-time Feedback
-        B -- Job Started --> J(WebSocket Streamer)
+        B -- Job Started --> J[WebSocket Streamer]
         D -- Researching... --> J
         F -- Writing Script... --> J
         G -- Generating Audio... --> J
