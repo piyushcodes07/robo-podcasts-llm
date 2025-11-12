@@ -30,24 +30,24 @@ The system follows an event-driven, pipeline architecture:
 
 ```mermaid
 graph TD
-    A[Client Request: /generate] --> B{API Server (FastAPI)};
-    B --> C[1. Start Background Job];
-    C --> D{Research Agent};
-    D --> E{Outline Generator};
-    E --> F{Script Writer};
-    F --> G{Text-to-Speech Engine};
-    G --> H[2. Merge Audio & Finalize];
-    H --> I[3. Upload to Storage];
+    A[Client Request: /generate] --> B{API Server (FastAPI)}
+    B --> C[1. Start Background Job]
+    C --> D[Research Agent]
+    D --> E[Outline Generator]
+    E --> F[Script Writer]
+    F --> G[Text-to-Speech Engine]
+    G --> H[2. Merge Audio & Finalize]
+    H --> I[3. Upload to Storage]
 
     subgraph Real-time Feedback
-        B -- Job Started --> J(WebSocket Streamer);
-        D -- Researching... --> J;
-        F -- Writing Script... --> J;
-        G -- Generating Audio... --> J;
-        I -- Complete --> J;
+        B -- Job Started --> J(WebSocket Streamer)
+        D -- Researching... --> J
+        F -- Writing Script... --> J
+        G -- Generating Audio... --> J
+        I -- Complete --> J
     end
 
-    J --> K[Client];
+    J --> K[Client]
 ```
 
 ## Technology Stack
