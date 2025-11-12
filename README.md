@@ -48,7 +48,6 @@ graph TD
     end
 
     J --> K[Client]
-```
 
 ## Technology Stack
 
