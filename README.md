@@ -48,7 +48,7 @@ graph TD
     end
 
     J --> K[Client]
-
+```
 ## Technology Stack
 
 *   **Backend**: FastAPI, Pydantic, Uvicorn
